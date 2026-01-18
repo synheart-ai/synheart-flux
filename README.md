@@ -190,3 +190,9 @@ See `SECURITY.md` for how to report vulnerabilities.
 
 Licensed under the **Apache License, Version 2.0**. See `LICENSE`.
 
+
+## Patent Pending Notice
+
+This project is provided under an open-source license. Certain underlying systems, methods, and architectures described or implemented herein may be covered by one or more pending patent applications.
+
+Nothing in this repository grants any license, express or implied, to any patents or patent applications, except as provided by the applicable open-source license.
