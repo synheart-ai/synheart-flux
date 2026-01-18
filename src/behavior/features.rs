@@ -19,10 +19,7 @@ impl BehaviorFeatureDeriver {
         // Core metrics
         let task_switch_rate = compute_task_switch_rate(normalized.app_switches_per_min);
         let notification_load = compute_notification_load(normalized.notifications_per_min);
-        let idle_ratio = compute_idle_ratio(
-            canonical.total_idle_time_sec,
-            canonical.duration_sec,
-        );
+        let idle_ratio = compute_idle_ratio(canonical.total_idle_time_sec, canonical.duration_sec);
         let fragmented_idle_ratio = compute_fragmented_idle_ratio(
             canonical.idle_segments.len() as u32,
             canonical.duration_sec,
@@ -211,9 +208,7 @@ fn compute_distraction_score(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::behavior::types::{
-        CanonicalBehaviorSignals, EngagementSegment, IdleSegment,
-    };
+    use crate::behavior::types::{CanonicalBehaviorSignals, EngagementSegment, IdleSegment};
     use chrono::{TimeZone, Utc};
 
     fn make_test_normalized() -> NormalizedBehaviorSignals {
@@ -234,13 +229,11 @@ mod tests {
             app_switch_events: 6,
             scroll_direction_reversals: 12,
             total_typing_duration_sec: 120.0,
-            idle_segments: vec![
-                IdleSegment {
-                    start: Utc.with_ymd_and_hms(2024, 1, 15, 14, 10, 0).unwrap(),
-                    end: Utc.with_ymd_and_hms(2024, 1, 15, 14, 11, 0).unwrap(),
-                    duration_sec: 60.0,
-                },
-            ],
+            idle_segments: vec![IdleSegment {
+                start: Utc.with_ymd_and_hms(2024, 1, 15, 14, 10, 0).unwrap(),
+                end: Utc.with_ymd_and_hms(2024, 1, 15, 14, 11, 0).unwrap(),
+                duration_sec: 60.0,
+            }],
             total_idle_time_sec: 120.0,
             engagement_segments: vec![
                 EngagementSegment {

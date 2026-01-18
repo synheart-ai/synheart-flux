@@ -312,7 +312,9 @@ mod tests {
         assert_eq!(new_processor.baseline_session_count(), 1);
 
         // Process another session - should have 2 in baseline
-        new_processor.process(sample_behavior_session_json()).unwrap();
+        new_processor
+            .process(sample_behavior_session_json())
+            .unwrap();
         assert_eq!(new_processor.baseline_session_count(), 2);
     }
 
@@ -358,7 +360,11 @@ mod tests {
 
         // Quality flags should indicate low event count
         let flags = &payload["quality"]["flags"];
-        assert!(flags.as_array().unwrap().iter().any(|f| f == "loweventcount"));
+        assert!(flags
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == "loweventcount"));
     }
 
     #[test]

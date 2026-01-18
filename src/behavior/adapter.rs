@@ -17,13 +17,14 @@ const MIN_ENGAGEMENT_DURATION_SEC: f64 = 10.0;
 
 /// Parse a behavioral session JSON string into a BehaviorSession
 pub fn parse_session(json: &str) -> Result<BehaviorSession, ComputeError> {
-    serde_json::from_str(json).map_err(|e| {
-        ComputeError::ParseError(format!("Failed to parse behavioral session: {}", e))
-    })
+    serde_json::from_str(json)
+        .map_err(|e| ComputeError::ParseError(format!("Failed to parse behavioral session: {}", e)))
 }
 
 /// Convert a BehaviorSession to CanonicalBehaviorSignals
-pub fn session_to_canonical(session: &BehaviorSession) -> Result<CanonicalBehaviorSignals, ComputeError> {
+pub fn session_to_canonical(
+    session: &BehaviorSession,
+) -> Result<CanonicalBehaviorSignals, ComputeError> {
     // Validate session
     if session.start_time >= session.end_time {
         return Err(ComputeError::ParseError(
@@ -64,7 +65,8 @@ pub fn session_to_canonical(session: &BehaviorSession) -> Result<CanonicalBehavi
     let total_idle_time_sec: f64 = idle_segments.iter().map(|s| s.duration_sec).sum();
 
     // Detect engagement segments
-    let engagement_segments = detect_engagement_segments(&events, &session.start_time, &session.end_time);
+    let engagement_segments =
+        detect_engagement_segments(&events, &session.start_time, &session.end_time);
 
     Ok(CanonicalBehaviorSignals {
         session_id: session.session_id.clone(),
@@ -196,7 +198,8 @@ fn detect_idle_segments(
     }
 
     // Check gap from last event to session end
-    let last_gap_sec = (*session_end - events.last().unwrap().timestamp).num_milliseconds() as f64 / 1000.0;
+    let last_gap_sec =
+        (*session_end - events.last().unwrap().timestamp).num_milliseconds() as f64 / 1000.0;
     if last_gap_sec > IDLE_GAP_THRESHOLD_SEC {
         segments.push(IdleSegment {
             start: events.last().unwrap().timestamp,
@@ -233,7 +236,8 @@ fn detect_engagement_segments(
 
         if gap_sec > IDLE_GAP_THRESHOLD_SEC {
             // End current segment
-            let duration_sec = (pair[0].timestamp - segment_start).num_milliseconds() as f64 / 1000.0;
+            let duration_sec =
+                (pair[0].timestamp - segment_start).num_milliseconds() as f64 / 1000.0;
             if duration_sec >= MIN_ENGAGEMENT_DURATION_SEC && segment_event_count > 0 {
                 segments.push(EngagementSegment {
                     start: segment_start,

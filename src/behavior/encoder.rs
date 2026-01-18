@@ -309,8 +309,10 @@ mod tests {
     #[test]
     fn test_quality_flags_in_output() {
         let mut signals = make_test_contextual();
-        signals.derived.normalized.quality_flags =
-            vec![BehaviorQualityFlag::ShortSession, BehaviorQualityFlag::LowEventCount];
+        signals.derived.normalized.quality_flags = vec![
+            BehaviorQualityFlag::ShortSession,
+            BehaviorQualityFlag::LowEventCount,
+        ];
 
         let encoder = HsiBehaviorEncoder::new();
         let payload = encoder.encode(&signals).unwrap();

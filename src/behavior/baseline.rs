@@ -59,10 +59,8 @@ impl BehaviorBaselineStore {
             old_baselines.distraction_baseline,
         );
 
-        let focus_deviation_pct = self.calculate_deviation(
-            Some(derived.focus_hint),
-            old_baselines.focus_baseline,
-        );
+        let focus_deviation_pct =
+            self.calculate_deviation(Some(derived.focus_hint), old_baselines.focus_baseline);
 
         // Update rolling values with current data
         self.distraction_values.push_back(derived.distraction_score);
@@ -80,7 +78,8 @@ impl BehaviorBaselineStore {
             self.burstiness_values.pop_front();
         }
 
-        self.intensity_values.push_back(derived.interaction_intensity);
+        self.intensity_values
+            .push_back(derived.interaction_intensity);
         while self.intensity_values.len() > self.window_size {
             self.intensity_values.pop_front();
         }
@@ -112,7 +111,7 @@ impl BehaviorBaselineStore {
         match (current, baseline) {
             (Some(curr), Some(base)) if base > 0.0 => Some(((curr - base) / base) * 100.0),
             (Some(curr), Some(base)) if base == 0.0 && curr > 0.0 => Some(100.0), // From 0 to something
-            (Some(_curr), Some(_base)) => Some(0.0), // Both are 0
+            (Some(_curr), Some(_base)) => Some(0.0),                              // Both are 0
             _ => None,
         }
     }
