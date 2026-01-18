@@ -163,7 +163,7 @@ Vendor-specific metrics are preserved under `*.vendor.*` for transparency.
 
 ## Feature flags
 
-- **`ffi`**: Enables the FFI feature set (intended for mobile bindings). *(Currently a placeholder feature flag in this crate.)*
+- **`ffi`**: Enables the C FFI bindings for mobile and cross-language integration. Provides both stateless functions (`synheart_flux_whoop_to_hsi`, `synheart_flux_garmin_to_hsi`) and a stateful processor API with persistent baselines.
 
 ## Development
 
