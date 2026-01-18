@@ -19,11 +19,12 @@ mkdir -p "$OUT_DIR"
 
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 
+# cargo-ndk uses -o/--output-dir (not --output).
 cargo ndk \
   --target arm64-v8a \
   --target armeabi-v7a \
   --target x86_64 \
-  --output "$OUT_DIR" \
+  -o "$OUT_DIR" \
   build --release
 
 echo "Built Android JNI libs into: $OUT_DIR"

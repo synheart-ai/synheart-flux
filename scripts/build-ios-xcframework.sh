@@ -29,6 +29,13 @@ DEVICE_LIB="target/aarch64-apple-ios/release/libsynheart_flux.a"
 SIM_ARM64_LIB="target/aarch64-apple-ios-sim/release/libsynheart_flux.a"
 SIM_X64_LIB="target/x86_64-apple-ios/release/libsynheart_flux.a"
 
+# Xcode considers the arm64 + x86_64 simulator libraries as equivalent "simulator" variants.
+# Provide a single fat simulator lib to `xcodebuild -create-xcframework`.
+SIM_FAT_DIR="target/ios-sim-fat/release"
+SIM_FAT_LIB="$SIM_FAT_DIR/libsynheart_flux.a"
+mkdir -p "$SIM_FAT_DIR"
+lipo -create -output "$SIM_FAT_LIB" "$SIM_ARM64_LIB" "$SIM_X64_LIB"
+
 HEADERS_DIR="include"
 HEADER_FILE="$HEADERS_DIR/synheart_flux.h"
 
@@ -41,8 +48,7 @@ rm -rf "$OUT_DIR/$XCFRAMEWORK_NAME"
 
 xcodebuild -create-xcframework \
   -library "$DEVICE_LIB" -headers "$HEADERS_DIR" \
-  -library "$SIM_ARM64_LIB" -headers "$HEADERS_DIR" \
-  -library "$SIM_X64_LIB" -headers "$HEADERS_DIR" \
+  -library "$SIM_FAT_LIB" -headers "$HEADERS_DIR" \
   -output "$OUT_DIR/$XCFRAMEWORK_NAME"
 
 echo "Built iOS XCFramework: $OUT_DIR/$XCFRAMEWORK_NAME"
