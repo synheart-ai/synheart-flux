@@ -25,12 +25,35 @@ jobs:
       - name: Verify tag matches Cargo.toml version
         run: |
           set -euxo pipefail
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          CARGO_VERSION="$(grep -E '^version\\s*=\\s*\"' Cargo.toml | head -n1 | sed -E 's/^version\\s*=\\s*\"([^\"]+)\".*/\\1/')"
-          if [[ "$TAG_VERSION" != "$CARGO_VERSION" ]]; then
-            echo "Tag version ($TAG_VERSION) does not match Cargo.toml version ($CARGO_VERSION)" >&2
-            exit 1
-          fi
+          python3 - <<'PY'
+          import os
+          import sys
+          try:
+              import tomllib  # py3.11+
+          except ModuleNotFoundError:
+              print("Python 'tomllib' not available. Use a runner with Python 3.11+.", file=sys.stderr)
+              raise
+          
+          ref = os.environ.get("GITHUB_REF_NAME", "")
+          if not ref.startswith("v"):
+              print(f"Expected tag like vX.Y.Z, got: {ref}", file=sys.stderr)
+              sys.exit(1)
+          tag_version = ref.removeprefix("v")
+          
+          with open("Cargo.toml", "rb") as f:
+              cargo = tomllib.load(f)
+          cargo_version = cargo.get("package", {}).get("version", "")
+          
+          if not cargo_version:
+              print("Could not read [package].version from Cargo.toml", file=sys.stderr)
+              sys.exit(1)
+          
+          if tag_version != cargo_version:
+              print(f"Tag version ({tag_version}) does not match Cargo.toml version ({cargo_version})", file=sys.stderr)
+              sys.exit(1)
+          
+          print(f"Version check OK: tag={tag_version} cargo={cargo_version}")
+          PY
 
       - name: Publish
         env:
