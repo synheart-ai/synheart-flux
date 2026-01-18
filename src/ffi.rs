@@ -9,6 +9,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::ptr;
 
+use crate::behavior::{behavior_to_hsi, BehaviorProcessor};
 use crate::pipeline::{garmin_to_hsi_daily, whoop_to_hsi_daily, FluxProcessor};
 
 // Thread-local storage for the last error message
@@ -390,6 +391,185 @@ pub unsafe extern "C" fn flux_processor_load_baselines(
 }
 
 // ============================================================================
+// Behavioral Stateless API
+// ============================================================================
+
+/// Process behavioral session JSON and return HSI JSON.
+///
+/// # Safety
+/// - `json` must be a valid null-terminated C string containing behavioral session JSON.
+/// - Returns a newly allocated string that must be freed with `flux_free_string`.
+/// - Returns NULL on error; call `flux_last_error` to get the error message.
+#[no_mangle]
+pub unsafe extern "C" fn flux_behavior_to_hsi(json: *const c_char) -> *mut c_char {
+    clear_last_error();
+
+    let json_str = match cstr_to_string(json) {
+        Some(s) => s,
+        None => {
+            set_last_error("Invalid JSON string pointer");
+            return ptr::null_mut();
+        }
+    };
+
+    match behavior_to_hsi(json_str) {
+        Ok(payload) => string_to_cstr(&payload),
+        Err(e) => {
+            set_last_error(&e.to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
+// ============================================================================
+// Behavioral Stateful Processor API
+// ============================================================================
+
+/// Opaque handle to a BehaviorProcessor
+pub struct BehaviorProcessorHandle {
+    processor: BehaviorProcessor,
+}
+
+/// Create a new BehaviorProcessor with the specified baseline window size (sessions).
+///
+/// # Safety
+/// - Returns a pointer to a newly allocated BehaviorProcessor.
+/// - Must be freed with `flux_behavior_processor_free`.
+/// - Returns NULL on error.
+#[no_mangle]
+pub unsafe extern "C" fn flux_behavior_processor_new(
+    baseline_window_sessions: i32,
+) -> *mut BehaviorProcessorHandle {
+    clear_last_error();
+
+    let window_sessions = if baseline_window_sessions <= 0 {
+        20 // Default
+    } else {
+        baseline_window_sessions as usize
+    };
+
+    let processor = BehaviorProcessor::with_baseline_window(window_sessions);
+    let handle = Box::new(BehaviorProcessorHandle { processor });
+    Box::into_raw(handle)
+}
+
+/// Free a BehaviorProcessor.
+///
+/// # Safety
+/// - `processor` must be a valid pointer returned by `flux_behavior_processor_new`.
+/// - After calling this function, the pointer is invalid.
+#[no_mangle]
+pub unsafe extern "C" fn flux_behavior_processor_free(processor: *mut BehaviorProcessorHandle) {
+    if !processor.is_null() {
+        drop(Box::from_raw(processor));
+    }
+}
+
+/// Process behavioral session JSON with a stateful processor.
+///
+/// # Safety
+/// - `processor` must be a valid pointer returned by `flux_behavior_processor_new`.
+/// - `json` must be a valid null-terminated C string.
+/// - Returns a newly allocated string that must be freed with `flux_free_string`.
+/// - Returns NULL on error; call `flux_last_error` to get the error message.
+#[no_mangle]
+pub unsafe extern "C" fn flux_behavior_processor_process(
+    processor: *mut BehaviorProcessorHandle,
+    json: *const c_char,
+) -> *mut c_char {
+    clear_last_error();
+
+    if processor.is_null() {
+        set_last_error("Null processor pointer");
+        return ptr::null_mut();
+    }
+
+    let handle = &mut *processor;
+
+    let json_str = match cstr_to_string(json) {
+        Some(s) => s,
+        None => {
+            set_last_error("Invalid JSON string pointer");
+            return ptr::null_mut();
+        }
+    };
+
+    match handle.processor.process(&json_str) {
+        Ok(payload) => string_to_cstr(&payload),
+        Err(e) => {
+            set_last_error(&e.to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
+/// Save behavioral processor baselines to JSON.
+///
+/// # Safety
+/// - `processor` must be a valid pointer returned by `flux_behavior_processor_new`.
+/// - Returns a newly allocated string that must be freed with `flux_free_string`.
+/// - Returns NULL on error; call `flux_last_error` to get the error message.
+#[no_mangle]
+pub unsafe extern "C" fn flux_behavior_processor_save_baselines(
+    processor: *mut BehaviorProcessorHandle,
+) -> *mut c_char {
+    clear_last_error();
+
+    if processor.is_null() {
+        set_last_error("Null processor pointer");
+        return ptr::null_mut();
+    }
+
+    let handle = &*processor;
+
+    match handle.processor.save_baselines() {
+        Ok(json) => string_to_cstr(&json),
+        Err(e) => {
+            set_last_error(&e.to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
+/// Load behavioral processor baselines from JSON.
+///
+/// # Safety
+/// - `processor` must be a valid pointer returned by `flux_behavior_processor_new`.
+/// - `json` must be a valid null-terminated C string.
+/// - Returns 0 on success, non-zero on error.
+/// - On error, call `flux_last_error` to get the error message.
+#[no_mangle]
+pub unsafe extern "C" fn flux_behavior_processor_load_baselines(
+    processor: *mut BehaviorProcessorHandle,
+    json: *const c_char,
+) -> i32 {
+    clear_last_error();
+
+    if processor.is_null() {
+        set_last_error("Null processor pointer");
+        return -1;
+    }
+
+    let handle = &mut *processor;
+
+    let json_str = match cstr_to_string(json) {
+        Some(s) => s,
+        None => {
+            set_last_error("Invalid JSON string pointer");
+            return -1;
+        }
+    };
+
+    match handle.processor.load_baselines(&json_str) {
+        Ok(()) => 0,
+        Err(e) => {
+            set_last_error(&e.to_string());
+            -1
+        }
+    }
+}
+
+// ============================================================================
 // Memory Management
 // ============================================================================
 
@@ -573,6 +753,108 @@ mod tests {
 
             let version_str = CStr::from_ptr(version).to_str().unwrap();
             assert!(!version_str.is_empty());
+        }
+    }
+
+    fn sample_behavior_session_json() -> CString {
+        CString::new(
+            r#"{
+            "session_id": "sess-123",
+            "device_id": "device-456",
+            "timezone": "America/New_York",
+            "start_time": "2024-01-15T14:00:00Z",
+            "end_time": "2024-01-15T14:30:00Z",
+            "events": [
+                {
+                    "timestamp": "2024-01-15T14:01:00Z",
+                    "event_type": "scroll",
+                    "scroll": { "velocity": 150.5, "direction": "down", "direction_reversal": false }
+                },
+                {
+                    "timestamp": "2024-01-15T14:02:00Z",
+                    "event_type": "tap",
+                    "tap": { "tap_duration_ms": 120, "long_press": false }
+                },
+                {
+                    "timestamp": "2024-01-15T14:03:00Z",
+                    "event_type": "notification",
+                    "interruption": { "action": "ignored" }
+                },
+                {
+                    "timestamp": "2024-01-15T14:05:00Z",
+                    "event_type": "app_switch",
+                    "app_switch": { "from_app_id": "com.app.one", "to_app_id": "com.app.two" }
+                }
+            ]
+        }"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_ffi_behavior_to_hsi() {
+        let json = sample_behavior_session_json();
+
+        unsafe {
+            let result = flux_behavior_to_hsi(json.as_ptr());
+
+            assert!(!result.is_null());
+
+            let result_str = CStr::from_ptr(result).to_str().unwrap();
+            assert!(result_str.contains("hsi_version"));
+            assert!(result_str.contains("behavior_windows"));
+            assert!(result_str.contains("distraction_score"));
+
+            flux_free_string(result);
+        }
+    }
+
+    #[test]
+    fn test_ffi_behavior_processor_lifecycle() {
+        unsafe {
+            // Create processor
+            let processor = flux_behavior_processor_new(10);
+            assert!(!processor.is_null());
+
+            // Process data
+            let json = sample_behavior_session_json();
+
+            let result = flux_behavior_processor_process(processor, json.as_ptr());
+            assert!(!result.is_null());
+
+            let result_str = CStr::from_ptr(result).to_str().unwrap();
+            assert!(result_str.contains("behavior_windows"));
+            flux_free_string(result);
+
+            // Save baselines
+            let baselines = flux_behavior_processor_save_baselines(processor);
+            assert!(!baselines.is_null());
+
+            // Load baselines into new processor
+            let processor2 = flux_behavior_processor_new(10);
+            let load_result = flux_behavior_processor_load_baselines(processor2, baselines);
+            assert_eq!(load_result, 0);
+
+            flux_free_string(baselines);
+            flux_behavior_processor_free(processor);
+            flux_behavior_processor_free(processor2);
+        }
+    }
+
+    #[test]
+    fn test_ffi_behavior_error_handling() {
+        unsafe {
+            let invalid_json = CString::new("not json").unwrap();
+
+            let result = flux_behavior_to_hsi(invalid_json.as_ptr());
+
+            assert!(result.is_null());
+
+            let error = flux_last_error();
+            assert!(!error.is_null());
+
+            let error_str = CStr::from_ptr(error).to_str().unwrap();
+            assert!(!error_str.is_empty());
         }
     }
 }
