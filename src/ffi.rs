@@ -246,7 +246,10 @@ pub unsafe extern "C" fn flux_processor_process_whoop(
         }
     };
 
-    match handle.processor.process_whoop(&json_str, &tz_str, &device_str) {
+    match handle
+        .processor
+        .process_whoop(&json_str, &tz_str, &device_str)
+    {
         Ok(payloads) => {
             let result = vec_to_json_array(payloads);
             string_to_cstr(&result)
@@ -305,7 +308,10 @@ pub unsafe extern "C" fn flux_processor_process_garmin(
         }
     };
 
-    match handle.processor.process_garmin(&json_str, &tz_str, &device_str) {
+    match handle
+        .processor
+        .process_garmin(&json_str, &tz_str, &device_str)
+    {
         Ok(payloads) => {
             let result = vec_to_json_array(payloads);
             string_to_cstr(&result)
@@ -412,11 +418,9 @@ pub unsafe extern "C" fn flux_free_string(ptr: *mut c_char) {
 /// - Returns NULL if no error occurred.
 #[no_mangle]
 pub unsafe extern "C" fn flux_last_error() -> *const c_char {
-    LAST_ERROR.with(|e| {
-        match &*e.borrow() {
-            Some(cstr) => cstr.as_ptr(),
-            None => ptr::null(),
-        }
+    LAST_ERROR.with(|e| match &*e.borrow() {
+        Some(cstr) => cstr.as_ptr(),
+        None => ptr::null(),
     })
 }
 
@@ -441,7 +445,8 @@ mod tests {
     use std::ffi::CString;
 
     fn sample_whoop_json() -> CString {
-        CString::new(r#"{
+        CString::new(
+            r#"{
             "sleep": [{
                 "id": 1,
                 "start": "2024-01-15T22:30:00.000Z",
@@ -480,7 +485,9 @@ mod tests {
                     "max_heart_rate": 165.0
                 }
             }]
-        }"#).unwrap()
+        }"#,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -490,11 +497,7 @@ mod tests {
         let device = CString::new("test-device").unwrap();
 
         unsafe {
-            let result = flux_whoop_to_hsi_daily(
-                json.as_ptr(),
-                tz.as_ptr(),
-                device.as_ptr(),
-            );
+            let result = flux_whoop_to_hsi_daily(json.as_ptr(), tz.as_ptr(), device.as_ptr());
 
             assert!(!result.is_null());
 
@@ -549,11 +552,8 @@ mod tests {
             let tz = CString::new("UTC").unwrap();
             let device = CString::new("device").unwrap();
 
-            let result = flux_whoop_to_hsi_daily(
-                invalid_json.as_ptr(),
-                tz.as_ptr(),
-                device.as_ptr(),
-            );
+            let result =
+                flux_whoop_to_hsi_daily(invalid_json.as_ptr(), tz.as_ptr(), device.as_ptr());
 
             assert!(result.is_null());
 
