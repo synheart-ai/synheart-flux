@@ -110,7 +110,9 @@ fn compute_normalized_load(signals: &NormalizedSignals) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{CanonicalActivity, CanonicalRecovery, CanonicalSleep, CanonicalWearSignals, Vendor};
+    use crate::types::{
+        CanonicalActivity, CanonicalRecovery, CanonicalSleep, CanonicalWearSignals, Vendor,
+    };
     use chrono::Utc;
     use std::collections::HashMap;
 

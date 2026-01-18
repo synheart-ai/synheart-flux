@@ -36,7 +36,7 @@ pub enum SleepStage {
 }
 
 /// Canonical sleep data extracted from vendor payloads
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CanonicalSleep {
     /// Sleep start time (UTC)
     pub start_time: Option<DateTime<Utc>>,
@@ -64,27 +64,8 @@ pub struct CanonicalSleep {
     pub respiratory_rate: Option<f64>,
 }
 
-impl Default for CanonicalSleep {
-    fn default() -> Self {
-        Self {
-            start_time: None,
-            end_time: None,
-            time_in_bed_minutes: None,
-            total_sleep_minutes: None,
-            awake_minutes: None,
-            light_sleep_minutes: None,
-            deep_sleep_minutes: None,
-            rem_sleep_minutes: None,
-            awakenings: None,
-            latency_minutes: None,
-            vendor_sleep_score: None,
-            respiratory_rate: None,
-        }
-    }
-}
-
 /// Canonical recovery/physiology data extracted from vendor payloads
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CanonicalRecovery {
     /// Heart rate variability (ms, RMSSD)
     pub hrv_rmssd_ms: Option<f64>,
@@ -98,20 +79,8 @@ pub struct CanonicalRecovery {
     pub spo2_percentage: Option<f64>,
 }
 
-impl Default for CanonicalRecovery {
-    fn default() -> Self {
-        Self {
-            hrv_rmssd_ms: None,
-            resting_hr_bpm: None,
-            vendor_recovery_score: None,
-            skin_temp_deviation_c: None,
-            spo2_percentage: None,
-        }
-    }
-}
-
 /// Canonical activity/strain data extracted from vendor payloads
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CanonicalActivity {
     /// Vendor-provided strain/load score (raw, vendor-specific scale)
     pub vendor_strain_score: Option<f64>,
@@ -129,21 +98,6 @@ pub struct CanonicalActivity {
     pub steps: Option<u32>,
     /// Active duration (minutes)
     pub active_minutes: Option<f64>,
-}
-
-impl Default for CanonicalActivity {
-    fn default() -> Self {
-        Self {
-            vendor_strain_score: None,
-            calories: None,
-            active_calories: None,
-            average_hr_bpm: None,
-            max_hr_bpm: None,
-            distance_meters: None,
-            steps: None,
-            active_minutes: None,
-        }
-    }
 }
 
 /// Canonical wear signals - vendor-agnostic representation of wearable data

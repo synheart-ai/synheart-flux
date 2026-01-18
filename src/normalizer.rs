@@ -183,7 +183,9 @@ mod tests {
 
         // Coverage should be lower
         assert!(normalized.coverage < 0.8);
-        assert!(normalized.quality_flags.contains(&QualityFlag::MissingSleepData));
+        assert!(normalized
+            .quality_flags
+            .contains(&QualityFlag::MissingSleepData));
         assert!(normalized.quality_flags.contains(&QualityFlag::MissingHrv));
     }
 }

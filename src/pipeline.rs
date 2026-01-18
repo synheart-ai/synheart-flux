@@ -332,19 +332,13 @@ mod tests {
         let mut processor = FluxProcessor::with_baseline_window(7);
 
         // Process first day
-        let result1 = processor.process_whoop(
-            sample_whoop_json(),
-            "America/New_York",
-            "test-device",
-        );
+        let result1 =
+            processor.process_whoop(sample_whoop_json(), "America/New_York", "test-device");
         assert!(result1.is_ok());
 
         // Process same data again - baselines should be updated
-        let result2 = processor.process_whoop(
-            sample_whoop_json(),
-            "America/New_York",
-            "test-device",
-        );
+        let result2 =
+            processor.process_whoop(sample_whoop_json(), "America/New_York", "test-device");
         assert!(result2.is_ok());
 
         let payload: serde_json::Value = serde_json::from_str(&result2.unwrap()[0]).unwrap();

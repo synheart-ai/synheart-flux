@@ -1,6 +1,12 @@
 # Synheart Flux
 
-**Synheart Flux** is a Rust-based, on-device compute engine that transforms raw wearable vendor payloads (e.g. WHOOP, Garmin) into **HSI-compliant human state signals**.
+[![CI](https://github.com/synheart-ai/synheart-flux/actions/workflows/ci.yml/badge.svg)](https://github.com/synheart-ai/synheart-flux/actions/workflows/ci.yml)
+[![Release](https://github.com/synheart-ai/synheart-flux/actions/workflows/release.yml/badge.svg)](https://github.com/synheart-ai/synheart-flux/actions/workflows/release.yml)
+[![Crates.io](https://img.shields.io/crates/v/synheart-flux.svg)](https://crates.io/crates/synheart-flux)
+[![docs.rs](https://img.shields.io/docsrs/synheart-flux)](https://docs.rs/synheart-flux)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+
+**Synheart Flux** is an on-device compute engine that transforms raw wearable vendor payloads (e.g. WHOOP, Garmin) into **HSI-compliant human state signals**.
 
 Flux centralizes a deterministic pipeline:
 **vendor adaptation → normalization → feature derivation → baseline computation → HSI encoding**.
@@ -22,12 +28,72 @@ Flux centralizes a deterministic pipeline:
 
 ## Install
 
+### Rust (crate)
+
 Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
 synheart-flux = "0.1"
 ```
+
+### Platform installs (Android / iOS / Flutter / Desktop)
+
+Flux is typically **bundled into a host SDK** (e.g. Synheart Wear) as native artifacts.
+
+- **Recommended (prebuilt)**: download artifacts from **GitHub Releases** for a tag like `v0.1.0` and vendor them into your SDK repo.
+- **Fallback (from source)**: build artifacts in CI (or locally) using the scripts in `scripts/`.
+
+
+#### Android (JNI `.so` inside an AAR)
+
+- **Get**: release asset `synheart-flux-android-jniLibs.tar.gz`
+- **Place** in your Android library/module:
+
+```text
+src/main/jniLibs/
+  arm64-v8a/libsynheart_flux.so
+  armeabi-v7a/libsynheart_flux.so
+  x86_64/libsynheart_flux.so
+```
+
+- **Build from source**:
+
+```bash
+ANDROID_NDK_HOME=/path/to/ndk bash scripts/build-android.sh dist/android/jniLibs
+```
+
+#### iOS (XCFramework)
+
+- **Get**: release asset `synheart-flux-ios-xcframework.zip`
+- **Place**:
+
+```text
+ios/Frameworks/SynheartFlux.xcframework
+```
+
+- **Build from source (macOS)**:
+
+```bash
+bash scripts/build-ios-xcframework.sh dist/ios
+```
+
+#### Flutter (plugin bundles Android + iOS)
+
+Bundle the same artifacts in your Flutter plugin:
+
+```text
+android/src/main/jniLibs/*/libsynheart_flux.so
+ios/Frameworks/SynheartFlux.xcframework
+```
+
+#### Desktop (macOS / Linux / Windows)
+
+- **Get** (examples):
+  - `synheart-flux-desktop-linux-x86_64.tar.gz`
+  - `synheart-flux-desktop-macos-<arch>.tar.gz`
+  - `synheart-flux-desktop-windows-x86_64.zip`
+- Use them in your app/tooling distribution (or load dynamically via FFI).
 
 ## Usage
 

@@ -103,7 +103,7 @@ impl HsiEncoder {
             .normalized
             .quality_flags
             .iter()
-            .map(|f| format!("{:?}", f).to_lowercase())
+            .map(|f| format!("{f:?}").to_lowercase())
             .collect();
 
         HsiQuality {

@@ -119,9 +119,7 @@ impl BaselineStore {
     /// Calculate deviation from baseline as percentage
     fn calculate_deviation(&self, current: Option<f64>, baseline: Option<f64>) -> Option<f64> {
         match (current, baseline) {
-            (Some(curr), Some(base)) if base > 0.0 => {
-                Some(((curr - base) / base) * 100.0)
-            }
+            (Some(curr), Some(base)) if base > 0.0 => Some(((curr - base) / base) * 100.0),
             _ => None,
         }
     }

@@ -15,6 +15,10 @@ use crate::types::CanonicalWearSignals;
 /// Trait for vendor payload adapters
 pub trait VendorPayloadAdapter {
     /// Parse raw JSON and convert to canonical signals
-    fn parse(&self, raw_json: &str, timezone: &str, device_id: &str)
-        -> Result<Vec<CanonicalWearSignals>, ComputeError>;
+    fn parse(
+        &self,
+        raw_json: &str,
+        timezone: &str,
+        device_id: &str,
+    ) -> Result<Vec<CanonicalWearSignals>, ComputeError>;
 }

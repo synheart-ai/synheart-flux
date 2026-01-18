@@ -89,18 +89,15 @@ fn convert_day_to_canonical(
         CanonicalSleep {
             start_time,
             end_time,
-            time_in_bed_minutes: s
-                .sleep_time_seconds
-                .map(|secs| secs as f64 / 60.0)
-                .or_else(|| {
+            time_in_bed_minutes: s.sleep_time_seconds.map(|secs| secs as f64 / 60.0).or_else(
+                || {
                     // Calculate from start/end if available
                     match (start_time, end_time) {
-                        (Some(start), Some(end)) => {
-                            Some((end - start).num_minutes() as f64)
-                        }
+                        (Some(start), Some(end)) => Some((end - start).num_minutes() as f64),
                         _ => None,
                     }
-                }),
+                },
+            ),
             total_sleep_minutes: s.sleep_time_seconds.map(|secs| secs as f64 / 60.0),
             awake_minutes: s.awake_sleep_seconds.map(|secs| secs as f64 / 60.0),
             light_sleep_minutes: s.light_sleep_seconds.map(|secs| secs as f64 / 60.0),

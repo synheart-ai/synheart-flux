@@ -2,7 +2,7 @@
 name = "synheart-flux"
 version = "0.1.0"
 edition = "2021"
-authors = ["Synheart Core <core@synheart.io>"]
+authors = ["Synheart AI Inc <opensource@synheart.ai>"]
 description = "On-device compute engine for HSI-compliant human state signals"
 license = "Apache-2.0"
 repository = "https://github.com/synheart/synheart-flux"
@@ -11,7 +11,7 @@ keywords = ["wearables", "health", "signals", "hsi", "on-device"]
 
 [lib]
 name = "synheart_flux"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

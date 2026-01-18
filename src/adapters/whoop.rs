@@ -165,7 +165,10 @@ fn convert_day_to_canonical(
     let activity = if let Some(c) = &day.cycle {
         CanonicalActivity {
             vendor_strain_score: c.score.as_ref().and_then(|sc| sc.strain),
-            calories: c.score.as_ref().and_then(|sc| sc.kilojoule.map(|kj| kj * 0.239006)), // kJ to kcal
+            calories: c
+                .score
+                .as_ref()
+                .and_then(|sc| sc.kilojoule.map(|kj| kj * 0.239006)), // kJ to kcal
             active_calories: None, // WHOOP doesn't separate active vs total in basic API
             average_hr_bpm: c.score.as_ref().and_then(|sc| sc.average_heart_rate),
             max_hr_bpm: c.score.as_ref().and_then(|sc| sc.max_heart_rate),
