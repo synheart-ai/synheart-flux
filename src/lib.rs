@@ -13,6 +13,9 @@ pub mod normalizer;
 pub mod pipeline;
 pub mod types;
 
+// FFI bindings for C interop (always available for cdylib/staticlib builds)
+pub mod ffi;
+
 pub use error::ComputeError;
 pub use pipeline::{garmin_to_hsi_daily, whoop_to_hsi_daily, FluxProcessor};
 
