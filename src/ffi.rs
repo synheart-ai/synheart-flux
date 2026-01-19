@@ -801,9 +801,12 @@ mod tests {
             assert!(!result.is_null());
 
             let result_str = CStr::from_ptr(result).to_str().unwrap();
-            assert!(result_str.contains("hsi_version"));
-            assert!(result_str.contains("behavior_windows"));
-            assert!(result_str.contains("distraction_score"));
+            // Check for HSI 1.0 compliant structure
+            assert!(result_str.contains("\"hsi_version\":"));
+            assert!(result_str.contains("\"axes\":"));
+            assert!(result_str.contains("\"behavior\":"));
+            assert!(result_str.contains("\"readings\":"));
+            assert!(result_str.contains("\"distraction\""));
 
             flux_free_string(result);
         }
@@ -823,7 +826,9 @@ mod tests {
             assert!(!result.is_null());
 
             let result_str = CStr::from_ptr(result).to_str().unwrap();
-            assert!(result_str.contains("behavior_windows"));
+            // Check for HSI 1.0 compliant structure
+            assert!(result_str.contains("\"axes\":"));
+            assert!(result_str.contains("\"behavior\":"));
             flux_free_string(result);
 
             // Save baselines

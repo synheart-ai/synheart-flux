@@ -209,24 +209,85 @@ fn main() -> Result<(), synheart_flux::ComputeError> {
 
 ## Output
 
-Flux emits **HSI JSON** payloads that include (at minimum):
+Flux emits **HSI 1.0 JSON** payloads that conform to the Human State Interface specification:
 
-- `hsi_version`
-- `producer` (`name`, `version`, `instance_id`)
-- `provenance` (`source_vendor`/`source_device_id`, timestamps)
-- `quality` (`coverage`, `confidence`, `flags`)
+### Required Fields
 
-### Wearable Output
+- `hsi_version` — Schema version (e.g., `"1.0"`)
+- `observed_at_utc` — When the data was observed
+- `computed_at_utc` — When HSI was computed
+- `producer` — Name, version, and instance_id of the producing software
+- `window_ids` / `windows` — Time windows with start/end timestamps
+- `source_ids` / `sources` — Data sources with type and quality
+- `axes` — Behavioral readings organized by domain
+- `privacy` — Data handling declarations
 
-- `windows[]` (daily), with canonical namespaces: `sleep.*`, `physiology.*`, `activity.*`, `baseline.*`
-- Vendor-specific metrics preserved under `*.vendor.*` for transparency
+### Behavioral Output Example
 
-### Behavioral Output
+```json
+{
+  "hsi_version": "1.0",
+  "observed_at_utc": "2024-01-15T14:30:00+00:00",
+  "computed_at_utc": "2024-01-15T14:30:01+00:00",
+  "producer": {
+    "name": "synheart-flux",
+    "version": "0.1.0",
+    "instance_id": "550e8400-e29b-41d4-a716-446655440000"
+  },
+  "window_ids": ["w_session_123"],
+  "windows": {
+    "w_session_123": {
+      "start": "2024-01-15T14:00:00+00:00",
+      "end": "2024-01-15T14:30:00+00:00",
+      "label": "session:session-123"
+    }
+  },
+  "source_ids": ["s_device_456"],
+  "sources": {
+    "s_device_456": {
+      "type": "app",
+      "quality": 0.95,
+      "degraded": false
+    }
+  },
+  "axes": {
+    "behavior": {
+      "readings": [
+        { "axis": "distraction", "score": 0.35, "confidence": 0.95, "window_id": "w_session_123", "direction": "higher_is_more", "evidence_source_ids": ["s_device_456"] },
+        { "axis": "focus", "score": 0.65, "confidence": 0.95, "window_id": "w_session_123", "direction": "higher_is_more", "evidence_source_ids": ["s_device_456"] },
+        { "axis": "task_switch_rate", "score": 0.42, "confidence": 0.95, "window_id": "w_session_123", "direction": "higher_is_more", "unit": "normalized", "evidence_source_ids": ["s_device_456"] },
+        { "axis": "burstiness", "score": 0.55, "confidence": 0.95, "window_id": "w_session_123", "direction": "bidirectional", "unit": "barabasi_index", "evidence_source_ids": ["s_device_456"] }
+      ]
+    }
+  },
+  "privacy": {
+    "contains_pii": false,
+    "raw_biosignals_allowed": false,
+    "derived_metrics_allowed": true,
+    "purposes": ["behavioral_research"]
+  },
+  "meta": {
+    "session_id": "session-123",
+    "baseline_distraction": 0.38,
+    "sessions_in_baseline": 15,
+    "duration_sec": 1800.0,
+    "total_events": 245
+  }
+}
+```
 
-- `behavior_windows[]` (per session), containing:
-  - `behavior.*` — distraction_score, focus_hint, task_switch_rate, notification_load, burstiness, scroll_jitter_rate, interaction_intensity, deep_focus_blocks
-  - `baseline.*` — distraction, focus, distraction_deviation_pct, sessions_in_baseline
-  - `event_summary.*` — total_events, scroll_events, tap_events, app_switches, notifications
+### Behavioral Axes
+
+| Axis | Direction | Description |
+|------|-----------|-------------|
+| `distraction` | higher_is_more | Composite distraction score (0-1) |
+| `focus` | higher_is_more | Inverse of distraction (0-1) |
+| `task_switch_rate` | higher_is_more | App switch frequency (normalized) |
+| `notification_load` | higher_is_more | Notification frequency (normalized) |
+| `burstiness` | bidirectional | Temporal clustering (Barabási index) |
+| `scroll_jitter_rate` | higher_is_more | Direction reversals ratio |
+| `interaction_intensity` | higher_is_more | Events per second (normalized) |
+| `idle_ratio` | higher_is_more | Idle time ratio |
 
 ## Feature flags
 

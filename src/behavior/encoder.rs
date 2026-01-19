@@ -1,21 +1,21 @@
-//! HSI behavioral encoder
+//! HSI 1.0 behavioral encoder
 //!
-//! Encodes contextual behavioral signals into HSI-compliant JSON payloads.
+//! Encodes contextual behavioral signals into HSI 1.0 compliant JSON payloads.
 
 use crate::behavior::types::{
-    ContextualBehaviorSignals, HsiBehavior, HsiBehaviorBaseline, HsiBehaviorPayload,
-    HsiBehaviorProducer, HsiBehaviorProvenance, HsiBehaviorQuality, HsiBehaviorWindow,
-    HsiEventSummary,
+    ContextualBehaviorSignals, HsiAxes, HsiAxesDomain, HsiAxisReading, HsiDirection, HsiPayload,
+    HsiPrivacy, HsiProducer, HsiSource, HsiSourceType, HsiWindow,
 };
 use crate::error::ComputeError;
 use crate::{FLUX_VERSION, PRODUCER_NAME};
 use chrono::Utc;
+use std::collections::HashMap;
 use uuid::Uuid;
 
-/// Current HSI schema version
-pub const HSI_VERSION: &str = "1.0.0";
+/// HSI schema version
+pub const HSI_VERSION: &str = "1.0";
 
-/// HSI behavioral encoder
+/// HSI 1.0 behavioral encoder
 pub struct HsiBehaviorEncoder {
     instance_id: String,
 }
@@ -39,40 +39,225 @@ impl HsiBehaviorEncoder {
         Self { instance_id }
     }
 
-    /// Encode contextual behavioral signals into an HSI payload
-    pub fn encode(
-        &self,
-        signals: &ContextualBehaviorSignals,
-    ) -> Result<HsiBehaviorPayload, ComputeError> {
+    /// Encode contextual behavioral signals into an HSI 1.0 compliant payload
+    pub fn encode(&self, signals: &ContextualBehaviorSignals) -> Result<HsiPayload, ComputeError> {
         let canonical = &signals.derived.normalized.canonical;
+        let derived = &signals.derived;
         let computed_at = Utc::now();
 
-        // Build producer metadata
-        let producer = HsiBehaviorProducer {
+        // Generate window ID
+        let window_id = format!("w_{}", canonical.session_id.replace('-', "_"));
+
+        // Build producer
+        let producer = HsiProducer {
             name: PRODUCER_NAME.to_string(),
             version: FLUX_VERSION.to_string(),
-            instance_id: self.instance_id.clone(),
+            instance_id: Some(self.instance_id.clone()),
         };
 
-        // Build provenance
-        let provenance = HsiBehaviorProvenance {
-            source_device_id: canonical.device_id.clone(),
-            observed_at_utc: canonical.start_time.to_rfc3339(),
-            computed_at_utc: computed_at.to_rfc3339(),
+        // Build window
+        let mut windows = HashMap::new();
+        windows.insert(
+            window_id.clone(),
+            HsiWindow {
+                start: canonical.start_time.to_rfc3339(),
+                end: canonical.end_time.to_rfc3339(),
+                label: Some(format!("session:{}", canonical.session_id)),
+            },
+        );
+
+        // Build source
+        let source_id = format!("s_{}", canonical.device_id.replace('-', "_"));
+        let mut sources = HashMap::new();
+        sources.insert(
+            source_id.clone(),
+            HsiSource {
+                source_type: HsiSourceType::App,
+                quality: signals.derived.normalized.coverage,
+                degraded: !signals.derived.normalized.quality_flags.is_empty(),
+                notes: if !signals.derived.normalized.quality_flags.is_empty() {
+                    Some(format!(
+                        "Quality flags: {:?}",
+                        signals.derived.normalized.quality_flags
+                    ))
+                } else {
+                    None
+                },
+            },
+        );
+
+        // Calculate confidence based on coverage and baseline
+        let base_confidence = signals.derived.normalized.coverage;
+        let baseline_bonus = if signals.baselines.sessions_in_baseline >= 5 {
+            0.1
+        } else {
+            0.0
+        };
+        let confidence = (base_confidence + baseline_bonus).min(1.0);
+
+        // Build behavioral axis readings
+        let behavior_readings = vec![
+            // Distraction score
+            HsiAxisReading {
+                axis: "distraction".to_string(),
+                score: Some(derived.distraction_score),
+                confidence,
+                window_id: window_id.clone(),
+                direction: Some(HsiDirection::HigherIsMore),
+                unit: None,
+                evidence_source_ids: Some(vec![source_id.clone()]),
+                notes: None,
+            },
+            // Focus hint (inverse of distraction)
+            HsiAxisReading {
+                axis: "focus".to_string(),
+                score: Some(derived.focus_hint),
+                confidence,
+                window_id: window_id.clone(),
+                direction: Some(HsiDirection::HigherIsMore),
+                unit: None,
+                evidence_source_ids: Some(vec![source_id.clone()]),
+                notes: None,
+            },
+            // Task switch rate
+            HsiAxisReading {
+                axis: "task_switch_rate".to_string(),
+                score: Some(derived.task_switch_rate),
+                confidence,
+                window_id: window_id.clone(),
+                direction: Some(HsiDirection::HigherIsMore),
+                unit: Some("normalized".to_string()),
+                evidence_source_ids: Some(vec![source_id.clone()]),
+                notes: Some("Exponential saturation of app switches per minute".to_string()),
+            },
+            // Notification load
+            HsiAxisReading {
+                axis: "notification_load".to_string(),
+                score: Some(derived.notification_load),
+                confidence,
+                window_id: window_id.clone(),
+                direction: Some(HsiDirection::HigherIsMore),
+                unit: Some("normalized".to_string()),
+                evidence_source_ids: Some(vec![source_id.clone()]),
+                notes: None,
+            },
+            // Burstiness
+            HsiAxisReading {
+                axis: "burstiness".to_string(),
+                score: Some(derived.burstiness),
+                confidence,
+                window_id: window_id.clone(),
+                direction: Some(HsiDirection::Bidirectional),
+                unit: Some("barabasi_index".to_string()),
+                evidence_source_ids: Some(vec![source_id.clone()]),
+                notes: Some("Barabási formula on inter-event gaps".to_string()),
+            },
+            // Scroll jitter rate
+            HsiAxisReading {
+                axis: "scroll_jitter_rate".to_string(),
+                score: Some(derived.scroll_jitter_rate),
+                confidence,
+                window_id: window_id.clone(),
+                direction: Some(HsiDirection::HigherIsMore),
+                unit: Some("ratio".to_string()),
+                evidence_source_ids: Some(vec![source_id.clone()]),
+                notes: None,
+            },
+            // Interaction intensity (clamped to 0-1)
+            HsiAxisReading {
+                axis: "interaction_intensity".to_string(),
+                score: Some(derived.interaction_intensity.min(1.0)),
+                confidence,
+                window_id: window_id.clone(),
+                direction: Some(HsiDirection::HigherIsMore),
+                unit: Some("normalized".to_string()),
+                evidence_source_ids: Some(vec![source_id.clone()]),
+                notes: None,
+            },
+            // Idle ratio
+            HsiAxisReading {
+                axis: "idle_ratio".to_string(),
+                score: Some(derived.idle_ratio),
+                confidence,
+                window_id: window_id.clone(),
+                direction: Some(HsiDirection::HigherIsMore),
+                unit: Some("ratio".to_string()),
+                evidence_source_ids: Some(vec![source_id.clone()]),
+                notes: None,
+            },
+        ];
+
+        // Build axes
+        let axes = HsiAxes {
+            affect: None,
+            engagement: None,
+            behavior: Some(HsiAxesDomain {
+                readings: behavior_readings,
+            }),
         };
 
-        // Build quality metrics
-        let quality = self.build_quality(signals);
+        // Build privacy
+        let privacy = HsiPrivacy {
+            contains_pii: false,
+            raw_biosignals_allowed: false,
+            derived_metrics_allowed: true,
+            embedding_allowed: None,
+            consent: None,
+            purposes: Some(vec!["behavioral_research".to_string()]),
+            notes: None,
+        };
 
-        // Build behavioral window
-        let window = self.build_behavior_window(signals);
+        // Build metadata with baseline and event summary info
+        let mut meta = HashMap::new();
+        meta.insert(
+            "session_id".to_string(),
+            serde_json::Value::String(canonical.session_id.clone()),
+        );
+        meta.insert(
+            "duration_sec".to_string(),
+            serde_json::Value::Number(serde_json::Number::from_f64(canonical.duration_sec).unwrap()),
+        );
+        meta.insert(
+            "total_events".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(canonical.total_events)),
+        );
+        meta.insert(
+            "deep_focus_blocks".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(derived.deep_focus_blocks)),
+        );
 
-        Ok(HsiBehaviorPayload {
+        // Add baseline info to meta
+        if let Some(baseline) = signals.baselines.distraction_baseline {
+            meta.insert(
+                "baseline_distraction".to_string(),
+                serde_json::Value::Number(serde_json::Number::from_f64(baseline).unwrap()),
+            );
+        }
+        if let Some(deviation) = signals.distraction_deviation_pct {
+            meta.insert(
+                "distraction_deviation_pct".to_string(),
+                serde_json::Value::Number(serde_json::Number::from_f64(deviation).unwrap()),
+            );
+        }
+        meta.insert(
+            "sessions_in_baseline".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(
+                signals.baselines.sessions_in_baseline,
+            )),
+        );
+
+        Ok(HsiPayload {
             hsi_version: HSI_VERSION.to_string(),
+            observed_at_utc: canonical.end_time.to_rfc3339(),
+            computed_at_utc: computed_at.to_rfc3339(),
             producer,
-            provenance,
-            quality,
-            behavior_windows: vec![window],
+            window_ids: vec![window_id],
+            windows,
+            source_ids: Some(vec![source_id]),
+            sources: Some(sources),
+            axes: Some(axes),
+            privacy,
+            meta: Some(meta),
         })
     }
 
@@ -83,75 +268,6 @@ impl HsiBehaviorEncoder {
     ) -> Result<String, ComputeError> {
         let payload = self.encode(signals)?;
         serde_json::to_string_pretty(&payload).map_err(ComputeError::JsonError)
-    }
-
-    fn build_quality(&self, signals: &ContextualBehaviorSignals) -> HsiBehaviorQuality {
-        let normalized = &signals.derived.normalized;
-
-        // Calculate confidence based on coverage and baseline availability
-        let base_confidence = normalized.coverage;
-        let baseline_bonus = if signals.baselines.sessions_in_baseline >= 5 {
-            0.1
-        } else {
-            0.0
-        };
-        let confidence = (base_confidence + baseline_bonus).min(1.0);
-
-        let flags: Vec<String> = normalized
-            .quality_flags
-            .iter()
-            .map(|f| format!("{f:?}").to_lowercase())
-            .collect();
-
-        HsiBehaviorQuality {
-            coverage: normalized.coverage,
-            confidence,
-            flags,
-        }
-    }
-
-    fn build_behavior_window(&self, signals: &ContextualBehaviorSignals) -> HsiBehaviorWindow {
-        let canonical = &signals.derived.normalized.canonical;
-        let derived = &signals.derived;
-
-        // Build behavior namespace
-        let behavior = HsiBehavior {
-            distraction_score: derived.distraction_score,
-            focus_hint: derived.focus_hint,
-            task_switch_rate: derived.task_switch_rate,
-            notification_load: derived.notification_load,
-            burstiness: derived.burstiness,
-            scroll_jitter_rate: derived.scroll_jitter_rate,
-            interaction_intensity: derived.interaction_intensity,
-            deep_focus_blocks: derived.deep_focus_blocks,
-        };
-
-        // Build baseline namespace
-        let baseline = HsiBehaviorBaseline {
-            distraction: signals.baselines.distraction_baseline,
-            focus: signals.baselines.focus_baseline,
-            distraction_deviation_pct: signals.distraction_deviation_pct,
-            sessions_in_baseline: signals.baselines.sessions_in_baseline,
-        };
-
-        // Build event summary
-        let event_summary = HsiEventSummary {
-            total_events: canonical.total_events,
-            scroll_events: canonical.scroll_events,
-            tap_events: canonical.tap_events,
-            app_switches: canonical.app_switch_events,
-            notifications: canonical.notification_events,
-        };
-
-        HsiBehaviorWindow {
-            session_id: canonical.session_id.clone(),
-            start_time_utc: canonical.start_time.to_rfc3339(),
-            end_time_utc: canonical.end_time.to_rfc3339(),
-            duration_sec: canonical.duration_sec,
-            behavior,
-            baseline,
-            event_summary,
-        }
     }
 }
 
@@ -232,82 +348,121 @@ mod tests {
     }
 
     #[test]
-    fn test_encode_hsi_behavior_payload() {
+    fn test_encode_hsi_compliant_payload() {
         let signals = make_test_contextual();
         let encoder = HsiBehaviorEncoder::with_instance_id("test-instance".to_string());
         let payload = encoder.encode(&signals).unwrap();
 
-        assert_eq!(payload.hsi_version, HSI_VERSION);
+        // Check HSI version
+        assert_eq!(payload.hsi_version, "1.0");
+
+        // Check required fields are present
+        assert!(!payload.observed_at_utc.is_empty());
+        assert!(!payload.computed_at_utc.is_empty());
+
+        // Check producer
         assert_eq!(payload.producer.name, PRODUCER_NAME);
         assert_eq!(payload.producer.version, FLUX_VERSION);
-        assert_eq!(payload.producer.instance_id, "test-instance");
+        assert_eq!(payload.producer.instance_id, Some("test-instance".to_string()));
 
-        assert_eq!(payload.provenance.source_device_id, "test-device");
+        // Check windows
+        assert_eq!(payload.window_ids.len(), 1);
+        let window_id = &payload.window_ids[0];
+        assert!(payload.windows.contains_key(window_id));
+        let window = &payload.windows[window_id];
+        assert!(!window.start.is_empty());
+        assert!(!window.end.is_empty());
 
-        assert!(payload.quality.coverage > 0.9);
-        assert!(payload.quality.confidence > 0.9);
-        assert!(payload.quality.flags.is_empty());
+        // Check sources
+        assert!(payload.source_ids.is_some());
+        assert!(payload.sources.is_some());
 
-        assert_eq!(payload.behavior_windows.len(), 1);
-        let window = &payload.behavior_windows[0];
-        assert_eq!(window.session_id, "test-session-123");
-        assert_eq!(window.duration_sec, 1800.0);
+        // Check axes
+        assert!(payload.axes.is_some());
+        let axes = payload.axes.as_ref().unwrap();
+        assert!(axes.behavior.is_some());
+        let behavior = axes.behavior.as_ref().unwrap();
+        assert!(!behavior.readings.is_empty());
 
-        // Check behavior metrics
-        assert!((window.behavior.distraction_score - 0.35).abs() < 0.001);
-        assert!((window.behavior.focus_hint - 0.65).abs() < 0.001);
-        assert!((window.behavior.task_switch_rate - 0.42).abs() < 0.001);
-        assert!((window.behavior.notification_load - 0.28).abs() < 0.001);
-        assert_eq!(window.behavior.deep_focus_blocks, 2);
+        // Check privacy
+        assert!(!payload.privacy.contains_pii);
+        assert!(payload.privacy.derived_metrics_allowed);
 
-        // Check baseline
-        assert_eq!(window.baseline.distraction, Some(0.38));
-        assert_eq!(window.baseline.focus, Some(0.62));
-        assert!((window.baseline.distraction_deviation_pct.unwrap() - (-7.9)).abs() < 0.1);
-        assert_eq!(window.baseline.sessions_in_baseline, 15);
-
-        // Check event summary
-        assert_eq!(window.event_summary.total_events, 245);
-        assert_eq!(window.event_summary.scroll_events, 120);
-        assert_eq!(window.event_summary.tap_events, 85);
-        assert_eq!(window.event_summary.app_switches, 8);
-        assert_eq!(window.event_summary.notifications, 12);
+        // Verify distraction reading
+        let distraction = behavior
+            .readings
+            .iter()
+            .find(|r| r.axis == "distraction")
+            .unwrap();
+        assert!((distraction.score.unwrap() - 0.35).abs() < 0.001);
+        assert_eq!(distraction.window_id, *window_id);
+        assert_eq!(distraction.direction, Some(HsiDirection::HigherIsMore));
     }
 
     #[test]
-    fn test_encode_to_json() {
+    fn test_encode_to_json_valid() {
         let signals = make_test_contextual();
         let encoder = HsiBehaviorEncoder::new();
         let json = encoder.encode_to_json(&signals).unwrap();
 
         // Verify it's valid JSON
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert!(parsed.get("hsi_version").is_some());
-        assert!(parsed.get("producer").is_some());
-        assert!(parsed.get("provenance").is_some());
-        assert!(parsed.get("quality").is_some());
-        assert!(parsed.get("behavior_windows").is_some());
 
-        // Check specific values
-        assert_eq!(parsed["hsi_version"], "1.0.0");
-        assert_eq!(parsed["producer"]["name"], "synheart-flux");
+        // Check required top-level fields
+        assert_eq!(parsed["hsi_version"], "1.0");
+        assert!(parsed.get("observed_at_utc").is_some());
+        assert!(parsed.get("computed_at_utc").is_some());
+        assert!(parsed.get("producer").is_some());
+        assert!(parsed.get("window_ids").is_some());
+        assert!(parsed.get("windows").is_some());
+        assert!(parsed.get("privacy").is_some());
+
+        // Check privacy constraints
+        assert_eq!(parsed["privacy"]["contains_pii"], false);
     }
 
     #[test]
-    fn test_confidence_with_no_baseline() {
-        let mut signals = make_test_contextual();
-        signals.baselines.sessions_in_baseline = 2; // Less than 5
-
+    fn test_axis_readings_have_required_fields() {
+        let signals = make_test_contextual();
         let encoder = HsiBehaviorEncoder::new();
         let payload = encoder.encode(&signals).unwrap();
 
-        // Without enough baseline sessions, no bonus
-        // Confidence should equal coverage
-        assert!((payload.quality.confidence - payload.quality.coverage).abs() < 0.001);
+        let axes = payload.axes.unwrap();
+        let behavior = axes.behavior.unwrap();
+
+        for reading in &behavior.readings {
+            // Check required fields
+            assert!(!reading.axis.is_empty(), "axis must not be empty");
+            assert!(reading.confidence >= 0.0 && reading.confidence <= 1.0);
+            assert!(!reading.window_id.is_empty());
+
+            // Score should be 0-1 or null
+            if let Some(score) = reading.score {
+                assert!(
+                    score >= 0.0 && score <= 1.0,
+                    "score must be 0-1, got {}",
+                    score
+                );
+            }
+        }
     }
 
     #[test]
-    fn test_quality_flags_in_output() {
+    fn test_meta_contains_baseline_info() {
+        let signals = make_test_contextual();
+        let encoder = HsiBehaviorEncoder::new();
+        let payload = encoder.encode(&signals).unwrap();
+
+        let meta = payload.meta.unwrap();
+        assert!(meta.contains_key("session_id"));
+        assert!(meta.contains_key("duration_sec"));
+        assert!(meta.contains_key("baseline_distraction"));
+        assert!(meta.contains_key("distraction_deviation_pct"));
+        assert!(meta.contains_key("sessions_in_baseline"));
+    }
+
+    #[test]
+    fn test_quality_flags_in_source() {
         let mut signals = make_test_contextual();
         signals.derived.normalized.quality_flags = vec![
             BehaviorQualityFlag::ShortSession,
@@ -317,9 +472,10 @@ mod tests {
         let encoder = HsiBehaviorEncoder::new();
         let payload = encoder.encode(&signals).unwrap();
 
-        assert_eq!(payload.quality.flags.len(), 2);
-        assert!(payload.quality.flags.contains(&"shortsession".to_string()));
-        assert!(payload.quality.flags.contains(&"loweventcount".to_string()));
+        let sources = payload.sources.unwrap();
+        let source = sources.values().next().unwrap();
+        assert!(source.degraded);
+        assert!(source.notes.is_some());
     }
 
     #[test]
@@ -332,6 +488,9 @@ mod tests {
         let payload2 = encoder2.encode(&signals).unwrap();
 
         // Different encoders should have different instance IDs
-        assert_ne!(payload1.producer.instance_id, payload2.producer.instance_id);
+        assert_ne!(
+            payload1.producer.instance_id,
+            payload2.producer.instance_id
+        );
     }
 }

@@ -232,28 +232,37 @@ mod tests {
         assert!(result.is_ok());
         let json = result.unwrap();
 
-        // Verify JSON is valid and contains expected fields
+        // Verify JSON is valid and contains expected HSI 1.0 fields
         let payload: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(payload["hsi_version"], "1.0.0");
+        assert_eq!(payload["hsi_version"], "1.0");
         assert_eq!(payload["producer"]["name"], "synheart-flux");
 
-        // Verify behavior window
-        let window = &payload["behavior_windows"][0];
-        assert_eq!(window["session_id"], "sess-123-abc");
-        assert_eq!(window["duration_sec"], 1800.0);
+        // Verify required top-level fields
+        assert!(payload.get("observed_at_utc").is_some());
+        assert!(payload.get("computed_at_utc").is_some());
+        assert!(payload.get("window_ids").is_some());
+        assert!(payload.get("windows").is_some());
+        assert!(payload.get("privacy").is_some());
 
-        // Verify behavior metrics exist
-        assert!(window["behavior"]["distraction_score"].is_number());
-        assert!(window["behavior"]["focus_hint"].is_number());
-        assert!(window["behavior"]["task_switch_rate"].is_number());
-        assert!(window["behavior"]["burstiness"].is_number());
+        // Verify privacy
+        assert_eq!(payload["privacy"]["contains_pii"], false);
 
-        // Verify event summary
-        assert_eq!(window["event_summary"]["total_events"], 10);
-        assert_eq!(window["event_summary"]["scroll_events"], 3);
-        assert_eq!(window["event_summary"]["tap_events"], 2);
-        assert_eq!(window["event_summary"]["notifications"], 2);
-        assert_eq!(window["event_summary"]["app_switches"], 1);
+        // Verify axes.behavior.readings
+        let readings = &payload["axes"]["behavior"]["readings"];
+        assert!(readings.is_array());
+
+        // Find distraction reading
+        let distraction = readings.as_array().unwrap()
+            .iter()
+            .find(|r| r["axis"] == "distraction")
+            .expect("distraction reading not found");
+        assert!(distraction["score"].is_number());
+        assert!(distraction["confidence"].is_number());
+        assert!(!distraction["window_id"].as_str().unwrap().is_empty());
+
+        // Verify meta contains session info
+        assert_eq!(payload["meta"]["session_id"], "sess-123-abc");
+        assert_eq!(payload["meta"]["total_events"], 10);
     }
 
     #[test]
@@ -270,16 +279,16 @@ mod tests {
         assert!(result2.is_ok());
         assert_eq!(processor.baseline_session_count(), 2);
 
-        // Second result should have baseline data
+        // Second result should have baseline data in meta
         let payload: serde_json::Value = serde_json::from_str(&result2.unwrap()).unwrap();
-        let baseline = &payload["behavior_windows"][0]["baseline"];
+        let meta = &payload["meta"];
 
         // After 2 sessions, baseline should be established
-        assert!(baseline["distraction"].is_number());
-        assert_eq!(baseline["sessions_in_baseline"], 2);
+        assert!(meta["baseline_distraction"].is_number());
+        assert_eq!(meta["sessions_in_baseline"], 2);
 
         // Deviation should be present
-        assert!(baseline["distraction_deviation_pct"].is_number());
+        assert!(meta["distraction_deviation_pct"].is_number());
     }
 
     #[test]
@@ -355,16 +364,12 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
 
         // Should still produce valid output with zero events
-        let window = &payload["behavior_windows"][0];
-        assert_eq!(window["event_summary"]["total_events"], 0);
+        assert_eq!(payload["meta"]["total_events"], 0);
 
-        // Quality flags should indicate low event count
-        let flags = &payload["quality"]["flags"];
-        assert!(flags
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|f| f == "loweventcount"));
+        // Source should be degraded with quality flags
+        let sources = &payload["sources"];
+        let source = sources.as_object().unwrap().values().next().unwrap();
+        assert!(source["degraded"].as_bool().unwrap());
     }
 
     #[test]
@@ -372,12 +377,15 @@ mod tests {
         let result = behavior_to_hsi(sample_behavior_session_json().to_string()).unwrap();
         let payload: serde_json::Value = serde_json::from_str(&result).unwrap();
 
-        let behavior = &payload["behavior_windows"][0]["behavior"];
-        let distraction = behavior["distraction_score"].as_f64().unwrap();
-        let focus = behavior["focus_hint"].as_f64().unwrap();
+        let readings = payload["axes"]["behavior"]["readings"].as_array().unwrap();
+        let distraction = readings.iter().find(|r| r["axis"] == "distraction").unwrap();
+        let focus = readings.iter().find(|r| r["axis"] == "focus").unwrap();
+
+        let distraction_score = distraction["score"].as_f64().unwrap();
+        let focus_score = focus["score"].as_f64().unwrap();
 
         // Focus should be 1 - distraction
-        assert!((distraction + focus - 1.0).abs() < 0.001);
+        assert!((distraction_score + focus_score - 1.0).abs() < 0.001);
     }
 
     #[test]
@@ -385,11 +393,12 @@ mod tests {
         let result = behavior_to_hsi(sample_behavior_session_json().to_string()).unwrap();
         let payload: serde_json::Value = serde_json::from_str(&result).unwrap();
 
-        let behavior = &payload["behavior_windows"][0]["behavior"];
-        let scroll_jitter = behavior["scroll_jitter_rate"].as_f64().unwrap();
+        let readings = payload["axes"]["behavior"]["readings"].as_array().unwrap();
+        let scroll_jitter = readings.iter().find(|r| r["axis"] == "scroll_jitter_rate").unwrap();
+        let scroll_jitter_score = scroll_jitter["score"].as_f64().unwrap();
 
         // We have 3 scroll events, 1 reversal
         // jitter = 1 / (3 - 1) = 0.5
-        assert!((scroll_jitter - 0.5).abs() < 0.001);
+        assert!((scroll_jitter_score - 0.5).abs() < 0.001);
     }
 }

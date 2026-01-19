@@ -16,6 +16,7 @@ pub mod types;
 pub use pipeline::{behavior_to_hsi, BehaviorProcessor};
 pub use types::{
     BehaviorEvent, BehaviorEventType, BehaviorSession, CanonicalBehaviorSignals,
-    ContextualBehaviorSignals, DerivedBehaviorSignals, HsiBehaviorPayload, HsiBehaviorWindow,
+    ContextualBehaviorSignals, DerivedBehaviorSignals, HsiAxisReading, HsiAxes, HsiAxesDomain,
+    HsiDirection, HsiPayload, HsiPrivacy, HsiProducer, HsiSource, HsiSourceType, HsiWindow,
     NormalizedBehaviorSignals,
 };

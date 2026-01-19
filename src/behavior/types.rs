@@ -334,117 +334,191 @@ pub struct ContextualBehaviorSignals {
     pub focus_deviation_pct: Option<f64>,
 }
 
-/// HSI behavioral namespace signals
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HsiBehavior {
-    /// Distraction score (0-1)
-    pub distraction_score: f64,
-    /// Focus hint (0-1)
-    pub focus_hint: f64,
-    /// Task switch rate (0-1)
-    pub task_switch_rate: f64,
-    /// Notification load (0-1)
-    pub notification_load: f64,
-    /// Burstiness (0-1)
-    pub burstiness: f64,
-    /// Scroll jitter rate (0-1)
-    pub scroll_jitter_rate: f64,
-    /// Interaction intensity
-    pub interaction_intensity: f64,
-    /// Number of deep focus blocks
-    pub deep_focus_blocks: u32,
+// ============================================================================
+// HSI 1.0 Compliant Types
+// ============================================================================
+
+/// HSI 1.0 axis reading direction
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HsiDirection {
+    HigherIsMore,
+    HigherIsLess,
+    Bidirectional,
 }
 
-/// HSI behavioral baseline namespace
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HsiBehaviorBaseline {
-    /// Baseline distraction score
-    pub distraction: Option<f64>,
-    /// Baseline focus hint
-    pub focus: Option<f64>,
-    /// Distraction deviation from baseline (percentage)
-    pub distraction_deviation_pct: Option<f64>,
-    /// Number of sessions in baseline
-    pub sessions_in_baseline: u32,
+/// HSI 1.0 source type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HsiSourceType {
+    Sensor,
+    App,
+    SelfReport,
+    Observer,
+    Derived,
+    Other,
 }
 
-/// Event summary for HSI output
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HsiEventSummary {
-    /// Total number of events
-    pub total_events: u32,
-    /// Number of scroll events
-    pub scroll_events: u32,
-    /// Number of tap events
-    pub tap_events: u32,
-    /// Number of app switches
-    pub app_switches: u32,
-    /// Number of notifications
-    pub notifications: u32,
+/// HSI 1.0 consent level
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HsiConsent {
+    None,
+    Implicit,
+    Explicit,
 }
 
-/// HSI behavioral window (one session)
+/// HSI 1.0 producer metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HsiBehaviorWindow {
-    /// Session identifier
-    pub session_id: String,
-    /// Session start time (UTC)
-    pub start_time_utc: String,
-    /// Session end time (UTC)
-    pub end_time_utc: String,
-    /// Session duration in seconds
-    pub duration_sec: f64,
-    /// Behavioral metrics
-    pub behavior: HsiBehavior,
-    /// Baseline information
-    pub baseline: HsiBehaviorBaseline,
-    /// Event summary
-    pub event_summary: HsiEventSummary,
-}
-
-/// HSI producer metadata (same as wearable)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HsiBehaviorProducer {
+pub struct HsiProducer {
+    /// Name of the producing software
     pub name: String,
+    /// Version of the producing software
     pub version: String,
-    pub instance_id: String,
+    /// Unique instance identifier (UUID)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
 }
 
-/// HSI provenance for behavioral data
+/// HSI 1.0 window definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HsiBehaviorProvenance {
-    /// Source device identifier
-    pub source_device_id: String,
-    /// When the session was observed
-    pub observed_at_utc: String,
-    /// When the HSI was computed
-    pub computed_at_utc: String,
+pub struct HsiWindow {
+    /// Window start time (RFC3339)
+    pub start: String,
+    /// Window end time (RFC3339)
+    pub end: String,
+    /// Optional label for the window
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
-/// HSI quality metrics for behavioral data
+/// HSI 1.0 axis reading
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HsiBehaviorQuality {
-    /// Data coverage (0-1)
-    pub coverage: f64,
-    /// Confidence in the signals (0-1)
+pub struct HsiAxisReading {
+    /// Axis name (lower_snake_case)
+    pub axis: String,
+    /// Score value (0-1) or null if unavailable
+    pub score: Option<f64>,
+    /// Confidence in the score (0-1)
     pub confidence: f64,
-    /// Quality flags
-    pub flags: Vec<String>,
+    /// Window ID this reading belongs to
+    pub window_id: String,
+    /// Direction semantics
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<HsiDirection>,
+    /// Unit of measurement
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    /// Source IDs that contributed to this reading
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence_source_ids: Option<Vec<String>>,
+    /// Notes about this reading
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
 }
 
-/// Complete HSI behavioral payload
+/// HSI 1.0 axes domain (contains readings array)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HsiBehaviorPayload {
-    /// HSI schema version
+pub struct HsiAxesDomain {
+    /// Axis readings
+    pub readings: Vec<HsiAxisReading>,
+}
+
+/// HSI 1.0 axes container
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HsiAxes {
+    /// Affect domain readings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub affect: Option<HsiAxesDomain>,
+    /// Engagement domain readings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engagement: Option<HsiAxesDomain>,
+    /// Behavior domain readings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub behavior: Option<HsiAxesDomain>,
+}
+
+/// HSI 1.0 source definition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HsiSource {
+    /// Source type
+    #[serde(rename = "type")]
+    pub source_type: HsiSourceType,
+    /// Quality of the source (0-1)
+    pub quality: f64,
+    /// Whether the source is degraded
+    pub degraded: bool,
+    /// Optional notes
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+/// HSI 1.0 privacy declaration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HsiPrivacy {
+    /// Must be false - HSI payloads must not contain PII
+    pub contains_pii: bool,
+    /// Whether raw biosignals are allowed
+    pub raw_biosignals_allowed: bool,
+    /// Whether derived metrics are allowed
+    pub derived_metrics_allowed: bool,
+    /// Whether embeddings are allowed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding_allowed: Option<bool>,
+    /// Consent level
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consent: Option<HsiConsent>,
+    /// Purposes for data use
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purposes: Option<Vec<String>>,
+    /// Notes about privacy
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+impl Default for HsiPrivacy {
+    fn default() -> Self {
+        Self {
+            contains_pii: false,
+            raw_biosignals_allowed: false,
+            derived_metrics_allowed: true,
+            embedding_allowed: None,
+            consent: None,
+            purposes: None,
+            notes: None,
+        }
+    }
+}
+
+/// HSI 1.0 compliant payload
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HsiPayload {
+    /// HSI schema version (must be "1.0")
     pub hsi_version: String,
+    /// When the human state was observed (RFC3339)
+    pub observed_at_utc: String,
+    /// When this payload was computed (RFC3339)
+    pub computed_at_utc: String,
     /// Producer metadata
-    pub producer: HsiBehaviorProducer,
-    /// Provenance information
-    pub provenance: HsiBehaviorProvenance,
-    /// Quality metrics
-    pub quality: HsiBehaviorQuality,
-    /// Behavioral windows (one per session)
-    pub behavior_windows: Vec<HsiBehaviorWindow>,
+    pub producer: HsiProducer,
+    /// Window identifiers
+    pub window_ids: Vec<String>,
+    /// Window definitions keyed by ID
+    pub windows: std::collections::HashMap<String, HsiWindow>,
+    /// Source identifiers (required if sources present)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ids: Option<Vec<String>>,
+    /// Source definitions keyed by ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sources: Option<std::collections::HashMap<String, HsiSource>>,
+    /// Axis readings by domain
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub axes: Option<HsiAxes>,
+    /// Privacy declaration
+    pub privacy: HsiPrivacy,
+    /// Additional metadata
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 #[cfg(test)]
