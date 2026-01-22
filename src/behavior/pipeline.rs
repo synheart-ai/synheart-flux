@@ -252,7 +252,9 @@ mod tests {
         assert!(readings.is_array());
 
         // Find distraction reading
-        let distraction = readings.as_array().unwrap()
+        let distraction = readings
+            .as_array()
+            .unwrap()
             .iter()
             .find(|r| r["axis"] == "distraction")
             .expect("distraction reading not found");
@@ -378,7 +380,10 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let readings = payload["axes"]["behavior"]["readings"].as_array().unwrap();
-        let distraction = readings.iter().find(|r| r["axis"] == "distraction").unwrap();
+        let distraction = readings
+            .iter()
+            .find(|r| r["axis"] == "distraction")
+            .unwrap();
         let focus = readings.iter().find(|r| r["axis"] == "focus").unwrap();
 
         let distraction_score = distraction["score"].as_f64().unwrap();
@@ -394,7 +399,10 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let readings = payload["axes"]["behavior"]["readings"].as_array().unwrap();
-        let scroll_jitter = readings.iter().find(|r| r["axis"] == "scroll_jitter_rate").unwrap();
+        let scroll_jitter = readings
+            .iter()
+            .find(|r| r["axis"] == "scroll_jitter_rate")
+            .unwrap();
         let scroll_jitter_score = scroll_jitter["score"].as_f64().unwrap();
 
         // We have 3 scroll events, 1 reversal

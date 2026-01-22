@@ -215,7 +215,9 @@ impl HsiBehaviorEncoder {
         );
         meta.insert(
             "duration_sec".to_string(),
-            serde_json::Value::Number(serde_json::Number::from_f64(canonical.duration_sec).unwrap()),
+            serde_json::Value::Number(
+                serde_json::Number::from_f64(canonical.duration_sec).unwrap(),
+            ),
         );
         meta.insert(
             "total_events".to_string(),
@@ -363,7 +365,10 @@ mod tests {
         // Check producer
         assert_eq!(payload.producer.name, PRODUCER_NAME);
         assert_eq!(payload.producer.version, FLUX_VERSION);
-        assert_eq!(payload.producer.instance_id, Some("test-instance".to_string()));
+        assert_eq!(
+            payload.producer.instance_id,
+            Some("test-instance".to_string())
+        );
 
         // Check windows
         assert_eq!(payload.window_ids.len(), 1);
@@ -488,9 +493,6 @@ mod tests {
         let payload2 = encoder2.encode(&signals).unwrap();
 
         // Different encoders should have different instance IDs
-        assert_ne!(
-            payload1.producer.instance_id,
-            payload2.producer.instance_id
-        );
+        assert_ne!(payload1.producer.instance_id, payload2.producer.instance_id);
     }
 }
