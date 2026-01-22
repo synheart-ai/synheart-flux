@@ -185,6 +185,39 @@ impl HsiBehaviorEncoder {
                 evidence_source_ids: Some(vec![source_id.clone()]),
                 notes: None,
             },
+            // Fragmented idle ratio (raw ratio; clamped for HSI score expectations)
+            HsiAxisReading {
+                axis: "fragmented_idle_ratio".to_string(),
+                score: Some(derived.fragmented_idle_ratio.min(1.0)),
+                confidence,
+                window_id: window_id.clone(),
+                direction: Some(HsiDirection::HigherIsMore),
+                unit: Some("segments_per_second".to_string()),
+                evidence_source_ids: Some(vec![source_id.clone()]),
+                notes: None,
+            },
+            // Task switch cost (normalized 0-1 where 1.0 = 10s average per switch)
+            HsiAxisReading {
+                axis: "task_switch_cost".to_string(),
+                score: Some(derived.task_switch_cost.clamp(0.0, 1.0)),
+                confidence,
+                window_id: window_id.clone(),
+                direction: Some(HsiDirection::HigherIsMore),
+                unit: Some("ratio_of_10s".to_string()),
+                evidence_source_ids: Some(vec![source_id.clone()]),
+                notes: Some("Average time per app switch, normalized by 10s cap".to_string()),
+            },
+            // Active time ratio
+            HsiAxisReading {
+                axis: "active_time_ratio".to_string(),
+                score: Some(derived.active_time_ratio.clamp(0.0, 1.0)),
+                confidence,
+                window_id: window_id.clone(),
+                direction: Some(HsiDirection::HigherIsMore),
+                unit: Some("ratio".to_string()),
+                evidence_source_ids: Some(vec![source_id.clone()]),
+                notes: Some("1 - idle_time_ratio - task_switch_cost contribution".to_string()),
+            },
         ];
 
         // Build axes
@@ -227,6 +260,192 @@ impl HsiBehaviorEncoder {
             "deep_focus_blocks".to_string(),
             serde_json::Value::Number(serde_json::Number::from(derived.deep_focus_blocks)),
         );
+        // Deep focus blocks detail (SDK expects detailed blocks)
+        let deep_focus_detail: Vec<serde_json::Value> = canonical
+            .engagement_segments
+            .iter()
+            .filter(|s| s.duration_sec >= 120.0)
+            .map(|s| {
+                serde_json::json!({
+                    "start_at": s.start.to_rfc3339(),
+                    "end_at": s.end.to_rfc3339(),
+                    "duration_ms": (s.duration_sec * 1000.0).round() as u64
+                })
+            })
+            .collect();
+        meta.insert(
+            "deep_focus_blocks_detail".to_string(),
+            serde_json::Value::Array(deep_focus_detail),
+        );
+
+        // Typing session summary (SDK-compatible keys)
+        let typing_sessions = &canonical.typing_sessions;
+        if typing_sessions.is_empty() {
+            meta.insert(
+                "typing_session_count".to_string(),
+                serde_json::Value::from(0),
+            );
+            meta.insert(
+                "average_keystrokes_per_session".to_string(),
+                serde_json::Value::from(0.0),
+            );
+            meta.insert(
+                "average_typing_session_duration".to_string(),
+                serde_json::Value::from(0.0),
+            );
+            meta.insert(
+                "average_typing_speed".to_string(),
+                serde_json::Value::from(0.0),
+            );
+            meta.insert(
+                "average_typing_gap".to_string(),
+                serde_json::Value::from(0.0),
+            );
+            meta.insert(
+                "average_inter_tap_interval".to_string(),
+                serde_json::Value::from(0.0),
+            );
+            meta.insert(
+                "typing_cadence_stability".to_string(),
+                serde_json::Value::from(0.0),
+            );
+            meta.insert(
+                "burstiness_of_typing".to_string(),
+                serde_json::Value::from(0.0),
+            );
+            meta.insert(
+                "total_typing_duration".to_string(),
+                serde_json::Value::from(0),
+            );
+            meta.insert(
+                "active_typing_ratio".to_string(),
+                serde_json::Value::from(0.0),
+            );
+            meta.insert(
+                "typing_contribution_to_interaction_intensity".to_string(),
+                serde_json::Value::from(0.0),
+            );
+            meta.insert("deep_typing_blocks".to_string(), serde_json::Value::from(0));
+            meta.insert(
+                "typing_fragmentation".to_string(),
+                serde_json::Value::from(0.0),
+            );
+            meta.insert(
+                "typing_metrics".to_string(),
+                serde_json::Value::Array(vec![]),
+            );
+        } else {
+            let n = typing_sessions.len() as f64;
+            let sum_taps: f64 = typing_sessions
+                .iter()
+                .map(|s| s.typing_tap_count as f64)
+                .sum();
+            let sum_dur: f64 = typing_sessions.iter().map(|s| s.duration as f64).sum();
+            let sum_speed: f64 = typing_sessions.iter().map(|s| s.typing_speed).sum();
+            let sum_mean_iti: f64 = typing_sessions
+                .iter()
+                .map(|s| s.mean_inter_tap_interval_ms)
+                .sum();
+            let sum_stability: f64 = typing_sessions
+                .iter()
+                .map(|s| s.typing_cadence_stability)
+                .sum();
+            let sum_burst: f64 = typing_sessions.iter().map(|s| s.typing_burstiness).sum();
+            let sum_gap_ratio: f64 = typing_sessions.iter().map(|s| s.typing_gap_ratio).sum();
+            let deep_typing_blocks: u32 =
+                typing_sessions.iter().filter(|s| s.deep_typing).count() as u32;
+
+            meta.insert(
+                "typing_session_count".to_string(),
+                serde_json::Value::from(typing_sessions.len() as u32),
+            );
+            meta.insert(
+                "average_keystrokes_per_session".to_string(),
+                serde_json::Value::from(sum_taps / n),
+            );
+            meta.insert(
+                "average_typing_session_duration".to_string(),
+                serde_json::Value::from(sum_dur / n),
+            );
+            meta.insert(
+                "average_typing_speed".to_string(),
+                serde_json::Value::from(sum_speed / n),
+            );
+            // SDK uses mean_inter_tap_interval_ms as "typing gap" and "inter tap interval"
+            meta.insert(
+                "average_typing_gap".to_string(),
+                serde_json::Value::from(sum_mean_iti / n),
+            );
+            meta.insert(
+                "average_inter_tap_interval".to_string(),
+                serde_json::Value::from(sum_mean_iti / n),
+            );
+            meta.insert(
+                "typing_cadence_stability".to_string(),
+                serde_json::Value::from(sum_stability / n),
+            );
+            meta.insert(
+                "burstiness_of_typing".to_string(),
+                serde_json::Value::from(sum_burst / n),
+            );
+            meta.insert(
+                "total_typing_duration".to_string(),
+                serde_json::Value::from(sum_dur.round() as u32),
+            );
+            // Ratio = (totalTypingDuration * 1000) / durationMs
+            let duration_ms = (canonical.duration_sec * 1000.0).round().max(0.0);
+            let active_typing_ratio = if duration_ms > 0.0 {
+                ((sum_dur * 1000.0) / duration_ms).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            meta.insert(
+                "active_typing_ratio".to_string(),
+                serde_json::Value::from(active_typing_ratio),
+            );
+            let typing_contribution = if canonical.total_events > 0 {
+                (canonical.typing_events as f64) / (canonical.total_events as f64)
+            } else {
+                0.0
+            };
+            meta.insert(
+                "typing_contribution_to_interaction_intensity".to_string(),
+                serde_json::Value::from(typing_contribution),
+            );
+            meta.insert(
+                "deep_typing_blocks".to_string(),
+                serde_json::Value::from(deep_typing_blocks),
+            );
+            meta.insert(
+                "typing_fragmentation".to_string(),
+                serde_json::Value::from(sum_gap_ratio / n),
+            );
+            let metrics: Vec<serde_json::Value> = typing_sessions
+                .iter()
+                .map(|s| {
+                    serde_json::json!({
+                        "start_at": s.start_at,
+                        "end_at": s.end_at,
+                        "duration": s.duration,
+                        "deep_typing": s.deep_typing,
+                        "typing_tap_count": s.typing_tap_count,
+                        "typing_speed": s.typing_speed,
+                        "mean_inter_tap_interval_ms": s.mean_inter_tap_interval_ms,
+                        "typing_cadence_variability": s.typing_cadence_variability,
+                        "typing_cadence_stability": s.typing_cadence_stability,
+                        "typing_gap_count": s.typing_gap_count,
+                        "typing_gap_ratio": s.typing_gap_ratio,
+                        "typing_burstiness": s.typing_burstiness,
+                        "typing_activity_ratio": s.typing_activity_ratio,
+                        "typing_interaction_intensity": s.typing_interaction_intensity,
+                    })
+                })
+                .collect();
+            meta.insert(
+                "typing_metrics".to_string(),
+                serde_json::Value::Array(metrics),
+            );
+        }
 
         // Add baseline info to meta
         if let Some(baseline) = signals.baselines.distraction_baseline {
@@ -300,6 +519,7 @@ mod tests {
             app_switch_events: 8,
             scroll_direction_reversals: 15,
             total_typing_duration_sec: 90.0,
+            typing_sessions: vec![],
             idle_segments: vec![],
             total_idle_time_sec: 60.0,
             engagement_segments: vec![],
@@ -322,6 +542,8 @@ mod tests {
         let derived = DerivedBehaviorSignals {
             normalized,
             task_switch_rate: 0.42,
+            task_switch_cost: 0.0,
+            active_time_ratio: 0.0,
             notification_load: 0.28,
             idle_ratio: 0.033,
             fragmented_idle_ratio: 0.0,

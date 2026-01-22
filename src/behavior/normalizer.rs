@@ -204,6 +204,7 @@ mod tests {
             app_switch_events: 4,
             scroll_direction_reversals: 10,
             total_typing_duration_sec: 45.0,
+            typing_sessions: vec![],
             idle_segments: vec![],
             total_idle_time_sec: 120.0,
             engagement_segments: vec![],
