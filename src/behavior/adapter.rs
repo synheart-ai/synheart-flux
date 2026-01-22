@@ -18,7 +18,7 @@ const MIN_ENGAGEMENT_DURATION_SEC: f64 = 10.0;
 /// Parse a behavioral session JSON string into a BehaviorSession
 pub fn parse_session(json: &str) -> Result<BehaviorSession, ComputeError> {
     serde_json::from_str(json)
-        .map_err(|e| ComputeError::ParseError(format!("Failed to parse behavioral session: {}", e)))
+        .map_err(|e| ComputeError::ParseError(format!("Failed to parse behavioral session: {e}")))
 }
 
 /// Convert a BehaviorSession to CanonicalBehaviorSignals

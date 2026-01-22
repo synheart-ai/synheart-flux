@@ -17,7 +17,7 @@ fn main() {
     }"#;
 
     match synheart_flux::behavior::behavior_to_hsi(json.to_string()) {
-        Ok(hsi) => print!("{}", hsi),
-        Err(e) => eprintln!("Error: {:?}", e),
+        Ok(hsi) => print!("{hsi}"),
+        Err(e) => eprintln!("Error: {e:?}"),
     }
 }

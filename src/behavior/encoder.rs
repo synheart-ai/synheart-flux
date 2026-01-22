@@ -444,9 +444,8 @@ mod tests {
             // Score should be 0-1 or null
             if let Some(score) = reading.score {
                 assert!(
-                    score >= 0.0 && score <= 1.0,
-                    "score must be 0-1, got {}",
-                    score
+                    (0.0..=1.0).contains(&score),
+                    "score must be 0-1, got {score}"
                 );
             }
         }
