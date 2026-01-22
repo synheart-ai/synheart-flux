@@ -4,8 +4,8 @@
 //! It supports both individual signal events (streaming) and session/summary
 //! records (batch processing).
 
-mod raw_event;
 mod adapter;
+mod raw_event;
 
-pub use raw_event::*;
 pub use adapter::*;
+pub use raw_event::*;

@@ -131,15 +131,15 @@ pub enum Unit {
     Hours,
 
     // Cardiovascular
-    Bpm,           // beats per minute
-    Ms,            // milliseconds (for HRV)
+    Bpm, // beats per minute
+    Ms,  // milliseconds (for HRV)
 
     // Respiratory
     BreathsPerMin,
-    Percent,       // for SpO2
+    Percent, // for SpO2
 
     // Activity
-    Count,         // steps, floors
+    Count, // steps, floors
     Kcal,
     Kj,
     Meters,
@@ -153,8 +153,8 @@ pub enum Unit {
     Lbs,
 
     // Generic
-    Score,         // normalized 0-100 or 0-1
-    Level,         // categorical (awake, light, deep, rem)
+    Score, // normalized 0-100 or 0-1
+    Level, // categorical (awake, light, deep, rem)
 
     /// For extensibility
     #[serde(untagged)]
@@ -390,11 +390,7 @@ pub struct RawEvent {
 
 impl RawEvent {
     /// Create a new signal event
-    pub fn signal(
-        timestamp: DateTime<Utc>,
-        source: Source,
-        signal: SignalPayload,
-    ) -> Self {
+    pub fn signal(timestamp: DateTime<Utc>, source: Source, signal: SignalPayload) -> Self {
         RawEvent {
             schema_version: SCHEMA_VERSION.to_string(),
             event_id: Some(uuid::Uuid::new_v4().to_string()),
@@ -409,11 +405,7 @@ impl RawEvent {
     }
 
     /// Create a new session event
-    pub fn session(
-        timestamp: DateTime<Utc>,
-        source: Source,
-        session: SessionPayload,
-    ) -> Self {
+    pub fn session(timestamp: DateTime<Utc>, source: Source, session: SessionPayload) -> Self {
         RawEvent {
             schema_version: SCHEMA_VERSION.to_string(),
             event_id: Some(uuid::Uuid::new_v4().to_string()),
@@ -428,11 +420,7 @@ impl RawEvent {
     }
 
     /// Create a new summary event
-    pub fn summary(
-        timestamp: DateTime<Utc>,
-        source: Source,
-        summary: SummaryPayload,
-    ) -> Self {
+    pub fn summary(timestamp: DateTime<Utc>, source: Source, summary: SummaryPayload) -> Self {
         RawEvent {
             schema_version: SCHEMA_VERSION.to_string(),
             event_id: Some(uuid::Uuid::new_v4().to_string()),
@@ -447,11 +435,7 @@ impl RawEvent {
     }
 
     /// Create a new score event
-    pub fn score(
-        timestamp: DateTime<Utc>,
-        source: Source,
-        score: ScorePayload,
-    ) -> Self {
+    pub fn score(timestamp: DateTime<Utc>, source: Source, score: ScorePayload) -> Self {
         RawEvent {
             schema_version: SCHEMA_VERSION.to_string(),
             event_id: Some(uuid::Uuid::new_v4().to_string()),
@@ -523,7 +507,10 @@ pub enum ValidationError {
     InvalidSchemaVersion { expected: String, actual: String },
 
     #[error("Payload type mismatch: record_type is {record_type} but payload is {payload_type}")]
-    PayloadTypeMismatch { record_type: String, payload_type: String },
+    PayloadTypeMismatch {
+        record_type: String,
+        payload_type: String,
+    },
 }
 
 #[cfg(test)]
@@ -564,7 +551,10 @@ mod tests {
         };
 
         let mut metrics = HashMap::new();
-        metrics.insert("total_sleep_minutes".to_string(), MetricValue::Number(420.0));
+        metrics.insert(
+            "total_sleep_minutes".to_string(),
+            MetricValue::Number(420.0),
+        );
         metrics.insert("deep_sleep_minutes".to_string(), MetricValue::Number(90.0));
         metrics.insert("rem_sleep_minutes".to_string(), MetricValue::Number(100.0));
         metrics.insert("awakenings".to_string(), MetricValue::Integer(3));
@@ -601,7 +591,10 @@ mod tests {
         let score = ScorePayload {
             score_type: ScoreType::Recovery,
             value: 78.0,
-            scale: ScoreScale { min: 0.0, max: 100.0 },
+            scale: ScoreScale {
+                min: 0.0,
+                max: 100.0,
+            },
             components,
         };
 

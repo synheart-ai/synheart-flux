@@ -12,8 +12,8 @@ use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use synheart_flux::schema::{RawEvent, RawEventAdapter, SCHEMA_VERSION};
 use synheart_flux::pipeline::FluxProcessor;
+use synheart_flux::schema::{RawEvent, RawEventAdapter, SCHEMA_VERSION};
 use synheart_flux::types::HsiPayload;
 use synheart_flux::{FLUX_VERSION, PRODUCER_NAME};
 
@@ -170,7 +170,11 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("{}", serde_json::to_string(&CliError::from(e)).unwrap_or_else(|_| "Unknown error".to_string()));
+            eprintln!(
+                "{}",
+                serde_json::to_string(&CliError::from(e))
+                    .unwrap_or_else(|_| "Unknown error".to_string())
+            );
             ExitCode::FAILURE
         }
     }
@@ -188,19 +192,17 @@ fn run(cli: Cli) -> Result<(), FluxCliError> {
             baseline_days,
             load_baselines,
             save_baselines,
-        } => {
-            cmd_transform(
-                &input,
-                &output,
-                input_format,
-                output_format,
-                &timezone,
-                &device_id,
-                baseline_days,
-                load_baselines.as_deref(),
-                save_baselines.as_deref(),
-            )
-        }
+        } => cmd_transform(
+            &input,
+            &output,
+            input_format,
+            output_format,
+            &timezone,
+            &device_id,
+            baseline_days,
+            load_baselines.as_deref(),
+            save_baselines.as_deref(),
+        ),
 
         Commands::Run {
             output_format,
@@ -210,17 +212,15 @@ fn run(cli: Cli) -> Result<(), FluxCliError> {
             load_baselines,
             save_baselines,
             flush,
-        } => {
-            cmd_run(
-                output_format,
-                &timezone,
-                &device_id,
-                baseline_days,
-                load_baselines.as_deref(),
-                save_baselines.as_deref(),
-                flush,
-            )
-        }
+        } => cmd_run(
+            output_format,
+            &timezone,
+            &device_id,
+            baseline_days,
+            load_baselines.as_deref(),
+            save_baselines.as_deref(),
+            flush,
+        ),
 
         Commands::Validate {
             input,
@@ -230,7 +230,10 @@ fn run(cli: Cli) -> Result<(), FluxCliError> {
 
         Commands::Doctor { baselines, json } => cmd_doctor(baselines.as_deref(), json),
 
-        Commands::Schema { schema_type, json_schema } => cmd_schema(schema_type, json_schema),
+        Commands::Schema {
+            schema_type,
+            json_schema,
+        } => cmd_schema(schema_type, json_schema),
     }
 }
 
@@ -353,9 +356,8 @@ fn cmd_run(
         }
 
         // Parse the event
-        let event: RawEvent = serde_json::from_str(trimmed).map_err(|e| {
-            FluxCliError::ParseError(format!("Failed to parse event: {}", e))
-        })?;
+        let event: RawEvent = serde_json::from_str(trimmed)
+            .map_err(|e| FluxCliError::ParseError(format!("Failed to parse event: {}", e)))?;
 
         // Validate the event
         event.validate()?;
@@ -529,30 +531,26 @@ fn cmd_doctor(baselines: Option<&std::path::Path>, json: bool) -> Result<(), Flu
     if let Some(baselines_path) = baselines {
         if baselines_path.exists() {
             match fs::read_to_string(baselines_path) {
-                Ok(content) => {
-                    match serde_json::from_str::<serde_json::Value>(&content) {
-                        Ok(value) => {
-                            let days = value.get("baseline_days")
-                                .and_then(|v| v.as_u64())
-                                .unwrap_or(0);
-                            checks.push(DoctorCheck {
-                                name: "baselines".to_string(),
-                                status: CheckStatus::Ok,
-                                message: format!(
-                                    "Baselines file valid ({} days of data)",
-                                    days
-                                ),
-                            });
-                        }
-                        Err(e) => {
-                            checks.push(DoctorCheck {
-                                name: "baselines".to_string(),
-                                status: CheckStatus::Error,
-                                message: format!("Invalid baselines JSON: {}", e),
-                            });
-                        }
+                Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+                    Ok(value) => {
+                        let days = value
+                            .get("baseline_days")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        checks.push(DoctorCheck {
+                            name: "baselines".to_string(),
+                            status: CheckStatus::Ok,
+                            message: format!("Baselines file valid ({} days of data)", days),
+                        });
                     }
-                }
+                    Err(e) => {
+                        checks.push(DoctorCheck {
+                            name: "baselines".to_string(),
+                            status: CheckStatus::Error,
+                            message: format!("Invalid baselines JSON: {}", e),
+                        });
+                    }
+                },
                 Err(e) => {
                     checks.push(DoctorCheck {
                         name: "baselines".to_string(),
@@ -611,7 +609,10 @@ fn cmd_doctor(baselines: Option<&std::path::Path>, json: bool) -> Result<(), Flu
         }
     }
 
-    let has_errors = report.checks.iter().any(|c| matches!(c.status, CheckStatus::Error));
+    let has_errors = report
+        .checks
+        .iter()
+        .any(|c| matches!(c.status, CheckStatus::Error));
     if has_errors {
         Err(FluxCliError::DoctorFailed)
     } else {
@@ -665,9 +666,13 @@ fn cmd_schema(schema_type: SchemaType, json_schema: bool) -> Result<(), FluxCliE
                 println!("- windows: Array of daily windows containing:");
                 println!("  - date, timezone");
                 println!("  - sleep: {{ duration, efficiency, fragmentation, deep_ratio, rem_ratio, ... }}");
-                println!("  - physiology: {{ hrv_rmssd_ms, resting_hr_bpm, spo2_percentage, ... }}");
+                println!(
+                    "  - physiology: {{ hrv_rmssd_ms, resting_hr_bpm, spo2_percentage, ... }}"
+                );
                 println!("  - activity: {{ strain_score, normalized_load, calories, steps, ... }}");
-                println!("  - baseline: {{ hrv_ms, resting_hr_bpm, deviations, days_in_baseline }}");
+                println!(
+                    "  - baseline: {{ hrv_ms, resting_hr_bpm, deviations, days_in_baseline }}"
+                );
             }
         }
     }
@@ -677,7 +682,10 @@ fn cmd_schema(schema_type: SchemaType, json_schema: bool) -> Result<(), FluxCliE
 
 // Helper functions
 
-fn format_output(hsi_outputs: &[HsiPayload], format: &OutputFormat) -> Result<String, FluxCliError> {
+fn format_output(
+    hsi_outputs: &[HsiPayload],
+    format: &OutputFormat,
+) -> Result<String, FluxCliError> {
     match format {
         OutputFormat::Ndjson => {
             let mut lines: Vec<String> = Vec::new();
@@ -686,12 +694,8 @@ fn format_output(hsi_outputs: &[HsiPayload], format: &OutputFormat) -> Result<St
             }
             Ok(lines.join("\n") + "\n")
         }
-        OutputFormat::Json => {
-            Ok(serde_json::to_string(hsi_outputs)?)
-        }
-        OutputFormat::JsonPretty => {
-            Ok(serde_json::to_string_pretty(hsi_outputs)?)
-        }
+        OutputFormat::Json => Ok(serde_json::to_string(hsi_outputs)?),
+        OutputFormat::JsonPretty => Ok(serde_json::to_string_pretty(hsi_outputs)?),
     }
 }
 
@@ -828,7 +832,8 @@ fn get_input_json_schema() -> String {
             },
             "vendor_raw": { "type": "object" }
         }
-    }).to_string()
+    })
+    .to_string()
 }
 
 fn get_output_json_schema() -> String {
@@ -872,7 +877,8 @@ fn get_output_json_schema() -> String {
                 "items": { "type": "object" }
             }
         }
-    }).to_string()
+    })
+    .to_string()
 }
 
 // Error types
@@ -952,7 +958,9 @@ impl From<FluxCliError> for CliError {
             FluxCliError::NoSignals => CliError {
                 code: "NO_SIGNALS".to_string(),
                 message: "No processable signals found".to_string(),
-                hint: Some("Check that events contain valid signal/session/summary data".to_string()),
+                hint: Some(
+                    "Check that events contain valid signal/session/summary data".to_string(),
+                ),
             },
             FluxCliError::ValidationFailed(count) => CliError {
                 code: "VALIDATION_FAILED".to_string(),

@@ -57,19 +57,16 @@ impl RawEventAdapter {
         for event in events {
             // Validate each event
             if let Err(e) = event.validate() {
-                return Err(ComputeError::ParseError(format!(
-                    "Invalid event: {}",
-                    e
-                )));
+                return Err(ComputeError::ParseError(format!("Invalid event: {}", e)));
             }
 
             let date = extract_date(&event.timestamp, event.context.as_ref());
             let provider = event.source.provider.as_str().to_string();
             let key = (date, provider);
 
-            let accumulator = by_date_provider.entry(key).or_insert_with(|| {
-                DayAccumulator::new(event.source.provider.clone())
-            });
+            let accumulator = by_date_provider
+                .entry(key)
+                .or_insert_with(|| DayAccumulator::new(event.source.provider.clone()));
 
             accumulator.add_event(event);
         }
@@ -167,9 +164,10 @@ impl DayAccumulator {
     fn add_event(&mut self, event: &RawEvent) {
         // Preserve vendor raw if present
         if let Some(raw) = &event.vendor_raw {
-            let key = event.event_id.clone().unwrap_or_else(|| {
-                format!("event_{}", self.vendor_raw.len())
-            });
+            let key = event
+                .event_id
+                .clone()
+                .unwrap_or_else(|| format!("event_{}", self.vendor_raw.len()));
             self.vendor_raw.insert(key, raw.clone());
         }
 
@@ -243,7 +241,11 @@ impl DayAccumulator {
                     let current = self.active_calories.unwrap_or(0.0);
                     self.active_calories = Some(current + v);
                 }
-                if let Some(v) = session.metrics.get("distance_meters").and_then(|m| m.as_f64()) {
+                if let Some(v) = session
+                    .metrics
+                    .get("distance_meters")
+                    .and_then(|m| m.as_f64())
+                {
                     let current = self.distance_meters.unwrap_or(0.0);
                     self.distance_meters = Some(current + v);
                 }
@@ -396,10 +398,7 @@ impl DayAccumulator {
                         .metrics
                         .get("total_sleep_minutes")
                         .and_then(|v| v.as_f64()),
-                    awake_minutes: sleep
-                        .metrics
-                        .get("awake_minutes")
-                        .and_then(|v| v.as_f64()),
+                    awake_minutes: sleep.metrics.get("awake_minutes").and_then(|v| v.as_f64()),
                     light_sleep_minutes: sleep
                         .metrics
                         .get("light_sleep_minutes")
@@ -421,10 +420,7 @@ impl DayAccumulator {
                         .metrics
                         .get("latency_minutes")
                         .and_then(|v| v.as_f64()),
-                    vendor_sleep_score: sleep
-                        .metrics
-                        .get("sleep_score")
-                        .and_then(|v| v.as_f64()),
+                    vendor_sleep_score: sleep.metrics.get("sleep_score").and_then(|v| v.as_f64()),
                     respiratory_rate: sleep
                         .metrics
                         .get("respiratory_rate")
@@ -493,10 +489,16 @@ mod tests {
 
         // Create sleep session
         let mut sleep_metrics = HashMap::new();
-        sleep_metrics.insert("total_sleep_minutes".to_string(), MetricValue::Number(420.0));
+        sleep_metrics.insert(
+            "total_sleep_minutes".to_string(),
+            MetricValue::Number(420.0),
+        );
         sleep_metrics.insert("deep_sleep_minutes".to_string(), MetricValue::Number(90.0));
         sleep_metrics.insert("rem_sleep_minutes".to_string(), MetricValue::Number(100.0));
-        sleep_metrics.insert("light_sleep_minutes".to_string(), MetricValue::Number(200.0));
+        sleep_metrics.insert(
+            "light_sleep_minutes".to_string(),
+            MetricValue::Number(200.0),
+        );
         sleep_metrics.insert("awake_minutes".to_string(), MetricValue::Number(30.0));
         sleep_metrics.insert("awakenings".to_string(), MetricValue::Integer(3));
         sleep_metrics.insert("sleep_score".to_string(), MetricValue::Number(85.0));
@@ -514,7 +516,10 @@ mod tests {
         let recovery_score = ScorePayload {
             score_type: ScoreType::Recovery,
             value: 78.0,
-            scale: ScoreScale { min: 0.0, max: 100.0 },
+            scale: ScoreScale {
+                min: 0.0,
+                max: 100.0,
+            },
             components: HashMap::new(),
         };
 
@@ -546,8 +551,8 @@ mod tests {
     #[test]
     fn test_to_canonical() {
         let events = create_test_events();
-        let signals = RawEventAdapter::to_canonical(&events, "America/New_York", "test-device")
-            .unwrap();
+        let signals =
+            RawEventAdapter::to_canonical(&events, "America/New_York", "test-device").unwrap();
 
         assert_eq!(signals.len(), 1);
         let sig = &signals[0];
