@@ -31,4 +31,10 @@ pub enum ComputeError {
 
     #[error("Unsupported vendor: {0}")]
     UnsupportedVendor(String),
+
+    #[error("Invalid behavioral session: {0}")]
+    InvalidBehaviorSession(String),
+
+    #[error("Insufficient events for computation: {0}")]
+    InsufficientEvents(String),
 }
