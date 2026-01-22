@@ -57,7 +57,7 @@ impl RawEventAdapter {
         for event in events {
             // Validate each event
             if let Err(e) = event.validate() {
-                return Err(ComputeError::ParseError(format!("Invalid event: {}", e)));
+                return Err(ComputeError::ParseError(format!("Invalid event: {e}")));
             }
 
             let date = extract_date(&event.timestamp, event.context.as_ref());
@@ -74,7 +74,7 @@ impl RawEventAdapter {
         // Convert accumulators to canonical signals
         let mut signals = Vec::new();
         for ((date, _), accumulator) in by_date_provider {
-            let canonical = accumulator.to_canonical(&date, timezone, device_id)?;
+            let canonical = accumulator.into_canonical(&date, timezone, device_id)?;
             signals.push(canonical);
         }
 
@@ -183,7 +183,7 @@ impl DayAccumulator {
         match signal.signal_type {
             SignalType::HeartRate => {
                 self.hr_readings.push(signal.value);
-                if self.max_hr.map_or(true, |m| signal.value > m) {
+                if self.max_hr.is_none_or(|m| signal.value > m) {
                     self.max_hr = Some(signal.value);
                 }
             }
@@ -328,7 +328,7 @@ impl DayAccumulator {
         }
     }
 
-    fn to_canonical(
+    fn into_canonical(
         self,
         date: &str,
         timezone: &str,
