@@ -30,9 +30,18 @@ impl BehaviorFeatureDeriver {
         );
         let burstiness = compute_burstiness(&canonical.inter_event_gaps);
         let deep_focus_blocks = count_deep_focus_blocks(&canonical.engagement_segments);
+        let task_switch_cost_ms =
+            compute_task_switch_cost_ms(canonical.duration_sec, canonical.app_switch_events);
+        let task_switch_cost_norm = (task_switch_cost_ms as f64 / 10_000.0).clamp(0.0, 1.0);
+        let active_time_ratio = compute_active_time_ratio(
+            canonical.duration_sec,
+            canonical.total_idle_time_sec,
+            task_switch_cost_ms,
+        );
         let interaction_intensity = compute_interaction_intensity(
             canonical.total_events,
-            canonical.notification_events + canonical.call_events,
+            canonical.notification_events + canonical.call_events + canonical.app_switch_events,
+            canonical.typing_events,
             canonical.total_typing_duration_sec,
             canonical.duration_sec,
         );
@@ -49,6 +58,8 @@ impl BehaviorFeatureDeriver {
         DerivedBehaviorSignals {
             normalized,
             task_switch_rate,
+            task_switch_cost: task_switch_cost_norm,
+            active_time_ratio,
             notification_load,
             idle_ratio,
             fragmented_idle_ratio,
@@ -64,10 +75,10 @@ impl BehaviorFeatureDeriver {
 
 /// Compute task switch rate using exponential saturation
 ///
-/// Formula: `1.0 - exp(-app_switches_per_min / 0.5)`
-/// This maps 0.5 switches/min to ~63% task switching, reaching near 1.0 asymptotically
+/// SDK formula (per-second): `1.0 - exp(-(app_switch_count / duration_sec) / (1/30))`
+/// Equivalent (per-minute): `1.0 - exp(-app_switches_per_min / 2.0)`
 fn compute_task_switch_rate(app_switches_per_min: f64) -> f64 {
-    (1.0 - (-app_switches_per_min / 0.5).exp()).clamp(0.0, 1.0)
+    (1.0 - (-app_switches_per_min / 2.0).exp()).clamp(0.0, 1.0)
 }
 
 /// Compute notification load using exponential saturation
@@ -97,12 +108,8 @@ fn compute_fragmented_idle_ratio(idle_segment_count: u32, session_duration_sec: 
     if session_duration_sec <= 0.0 {
         return 0.0;
     }
-    // Scale to make typical values fall in 0-1 range
-    // ~1 idle segment per 60 seconds would give 0.0167, we want this to be meaningful
-    // So we multiply by 60 to get "idle segments per minute equivalent"
-    let segments_per_minute = (idle_segment_count as f64 / session_duration_sec) * 60.0;
-    // Cap at 1.0 (more than 1 idle segment per minute is very fragmented)
-    segments_per_minute.clamp(0.0, 1.0)
+    // Keep raw ratio (can exceed 1.0 on very short sessions). We'll clamp at encoding time.
+    (idle_segment_count as f64 / session_duration_sec).max(0.0)
 }
 
 /// Compute scroll jitter rate
@@ -166,6 +173,7 @@ fn count_deep_focus_blocks(
 fn compute_interaction_intensity(
     total_events: u32,
     interruption_events: u32,
+    typing_event_count: u32,
     typing_duration_sec: f64,
     session_duration_sec: f64,
 ) -> f64 {
@@ -173,14 +181,42 @@ fn compute_interaction_intensity(
         return 0.0;
     }
 
-    let non_interruption_events = total_events.saturating_sub(interruption_events);
+    // SDK excludes interruptions AND typing events from the event-count term, then adds typing
+    // duration contribution separately.
+    let non_interruption_non_typing_events = total_events
+        .saturating_sub(interruption_events)
+        .saturating_sub(typing_event_count);
     let typing_equivalent = typing_duration_sec / 10.0; // 10 seconds of typing = 1 "event"
-    let total_interaction = non_interruption_events as f64 + typing_equivalent;
+    let total_interaction = non_interruption_non_typing_events as f64 + typing_equivalent;
 
     // Normalize to events per minute, then scale to 0-1 range
     // ~10 events per minute is considered high intensity
     let events_per_minute = (total_interaction / session_duration_sec) * 60.0;
     (events_per_minute / 10.0).clamp(0.0, 1.0)
+}
+
+/// Compute task switch cost (ms) = durationMs / appSwitchCount, coerced to 0..10000.
+fn compute_task_switch_cost_ms(session_duration_sec: f64, app_switch_count: u32) -> u32 {
+    if app_switch_count == 0 || session_duration_sec <= 0.0 {
+        return 0;
+    }
+    let duration_ms = (session_duration_sec * 1000.0).round().max(0.0) as u32;
+    (duration_ms / app_switch_count).clamp(0, 10_000)
+}
+
+/// Compute active time ratio = (duration - idle_time - task_switch_cost) / duration.
+fn compute_active_time_ratio(
+    session_duration_sec: f64,
+    total_idle_time_sec: f64,
+    task_switch_cost_ms: u32,
+) -> f64 {
+    if session_duration_sec <= 0.0 {
+        return 0.0;
+    }
+    let duration_ms = (session_duration_sec * 1000.0).round().max(0.0);
+    let total_idle_time_ms = (total_idle_time_sec * 1000.0).round().max(0.0);
+    let active_interaction_time_ms = duration_ms - total_idle_time_ms - task_switch_cost_ms as f64;
+    (active_interaction_time_ms / duration_ms).clamp(0.0, 1.0)
 }
 
 /// Compute distraction score (weighted combination)
@@ -229,6 +265,7 @@ mod tests {
             app_switch_events: 6,
             scroll_direction_reversals: 12,
             total_typing_duration_sec: 120.0,
+            typing_sessions: vec![],
             idle_segments: vec![IdleSegment {
                 start: Utc.with_ymd_and_hms(2024, 1, 15, 14, 10, 0).unwrap(),
                 end: Utc.with_ymd_and_hms(2024, 1, 15, 14, 11, 0).unwrap(),
@@ -271,12 +308,12 @@ mod tests {
         // 0 switches/min should give 0
         assert!((compute_task_switch_rate(0.0) - 0.0).abs() < 0.001);
 
-        // 0.5 switches/min should give ~63% (1 - e^-1)
-        let rate_at_half = compute_task_switch_rate(0.5);
+        // 2 switches/min should give ~63% (1 - e^-1)
+        let rate_at_half = compute_task_switch_rate(2.0);
         assert!((rate_at_half - 0.632).abs() < 0.01);
 
         // High rate should approach 1
-        assert!(compute_task_switch_rate(5.0) > 0.99);
+        assert!(compute_task_switch_rate(50.0) > 0.99);
     }
 
     #[test]
@@ -308,13 +345,13 @@ mod tests {
     #[test]
     fn test_fragmented_idle_ratio() {
         // 1 idle segment in 1800 seconds
-        // = (1 / 1800) * 60 = 0.033 segments per minute
+        // = (1 / 1800) segments per second
         let ratio = compute_fragmented_idle_ratio(1, 1800.0);
-        assert!((ratio - 0.033).abs() < 0.01);
+        assert!((ratio - (1.0 / 1800.0)).abs() < 0.00001);
 
-        // 30 segments in 1800 seconds = 1 per minute
+        // 30 segments in 1800 seconds
         let high_fragmentation = compute_fragmented_idle_ratio(30, 1800.0);
-        assert!((high_fragmentation - 1.0).abs() < 0.01);
+        assert!((high_fragmentation - (30.0 / 1800.0)).abs() < 0.00001);
     }
 
     #[test]
@@ -358,14 +395,17 @@ mod tests {
 
     #[test]
     fn test_interaction_intensity() {
-        // 110 non-interruption events + 120/10 = 12 typing equivalent = 122 total
+        // (total - interruptions - typing_events) + 120/10 = typing equivalent
+        // Using: total=120, interruptions=10, typing_events=3 => 107 + 12 = 119
         // In 1800 seconds = 4.07 events per minute
         // Scaled to 0-1: 4.07 / 10 = 0.407
-        let intensity = compute_interaction_intensity(120, 10, 120.0, 1800.0);
-        assert!((intensity - 0.407).abs() < 0.02);
+        let intensity = compute_interaction_intensity(120, 10, 3, 120.0, 1800.0);
+        let expected_events_per_min = ((107.0 + 12.0) / 1800.0) * 60.0;
+        let expected = (expected_events_per_min / 10.0_f64).clamp(0.0, 1.0);
+        assert!((intensity - expected).abs() < 0.02);
 
         // Zero duration should return 0
-        assert_eq!(compute_interaction_intensity(100, 10, 60.0, 0.0), 0.0);
+        assert_eq!(compute_interaction_intensity(100, 10, 0, 60.0, 0.0), 0.0);
     }
 
     #[test]
