@@ -605,6 +605,34 @@ pub unsafe extern "C" fn flux_last_error() -> *const c_char {
 }
 
 // ============================================================================
+// Memory Management (WASM)
+// ============================================================================
+
+/// Allocate memory of given size.
+///
+/// # Safety
+/// - Returns a pointer to a newly allocated memory block.
+/// - Must be freed with `dealloc`.
+/// - Returns NULL on allocation failure (though Rust usually panics).
+#[no_mangle]
+pub extern "C" fn alloc(size: usize) -> *mut u8 {
+    let mut buf = Vec::with_capacity(size);
+    let ptr = buf.as_mut_ptr();
+    std::mem::forget(buf);
+    ptr
+}
+
+/// Deallocate memory at ptr with given size.
+///
+/// # Safety
+/// - `ptr` must be a valid pointer returned by `alloc` or `alloc`.
+/// - `size` must be the same size as allocated.
+#[no_mangle]
+pub unsafe extern "C" fn dealloc(ptr: *mut u8, size: usize) {
+    let _ = Vec::from_raw_parts(ptr, 0, size);
+}
+
+// ============================================================================
 // Version Information
 // ============================================================================
 

@@ -104,6 +104,21 @@ ios/Frameworks/SynheartFlux.xcframework
   - `synheart-flux-desktop-windows-x86_64.zip`
 - Use them in your app/tooling distribution (or load dynamically via FFI).
 
+#### WebAssembly (WASI)
+
+Flux can be compiled to WASM for cross-language integration (e.g., Go via `wazero`) without the overhead of CGO.
+
+- **Target**: `wasm32-wasip1`
+- **Build from source**:
+
+```bash
+rustup target add wasm32-wasip1
+cargo build --target wasm32-wasip1 --release
+```
+
+- **Integration**: The WASM module exports `alloc` and `dealloc` for host-managed memory, alongside the standard Flux FFI API.
+- **Example (Go/wazero)**: Reach out for internal examples on wrapping the Flux guest instance.
+
 ## Usage
 
 ### One-shot conversion (stateless)
