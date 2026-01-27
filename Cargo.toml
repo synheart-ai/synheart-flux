@@ -13,6 +13,11 @@ keywords = ["wearables", "health", "signals", "hsi", "on-device"]
 name = "synheart_flux"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
+[[bin]]
+name = "flux"
+path = "src/bin/flux.rs"
+required-features = ["cli"]
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -20,9 +25,14 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
+# CLI dependencies (optional)
+clap = { version = "4.4", features = ["derive"], optional = true }
+atty = { version = "0.2", optional = true }
+
 [dev-dependencies]
 pretty_assertions = "1.4"
 
 [features]
 default = []
 ffi = []
+cli = ["dep:clap", "dep:atty"]

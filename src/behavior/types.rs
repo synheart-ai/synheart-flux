@@ -82,14 +82,85 @@ pub struct InterruptionEvent {
 /// Typing event data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypingEvent {
-    /// Typing speed in characters per minute
+    /// Typing speed.
+    ///
+    /// Notes:
+    /// - Some producers report characters/minute (CPM) under `typing_speed_cpm`.
+    /// - The SDK typing session metrics report taps/second under `typing_speed`.
+    #[serde(default)]
+    #[serde(alias = "typing_speed")]
     pub typing_speed_cpm: Option<f64>,
-    /// Cadence stability (0-1, higher = more consistent rhythm)
+
+    /// Cadence stability (0-1, higher = more consistent rhythm).
+    ///
+    /// Notes:
+    /// - Some producers report this under `typing_cadence_stability` (captured separately in
+    ///   `typing_cadence_stability` below).
+    #[serde(default)]
     pub cadence_stability: Option<f64>,
-    /// Duration of typing session in seconds
+
+    /// Duration of the typing session in seconds.
+    ///
+    /// Notes:
+    /// - The SDK uses `duration` (seconds) in typing-session payloads.
+    #[serde(default)]
+    #[serde(alias = "duration")]
     pub duration_sec: Option<f64>,
-    /// Number of pauses during typing
+
+    /// Number of pauses during typing.
+    #[serde(default)]
     pub pause_count: Option<u32>,
+
+    // ---------------------------------------------------------------------
+    // Optional detailed typing-session metrics (from BehaviorTextField / SDK)
+    // ---------------------------------------------------------------------
+    /// ISO8601 typing session start timestamp.
+    #[serde(default)]
+    pub start_at: Option<String>,
+
+    /// ISO8601 typing session end timestamp.
+    #[serde(default)]
+    pub end_at: Option<String>,
+
+    /// Total keyboard taps in the session.
+    #[serde(default)]
+    pub typing_tap_count: Option<u32>,
+
+    /// Mean time between taps (milliseconds).
+    #[serde(default)]
+    pub mean_inter_tap_interval_ms: Option<f64>,
+
+    /// Variability in inter-tap timing (milliseconds).
+    #[serde(default)]
+    pub typing_cadence_variability: Option<f64>,
+
+    /// Normalized rhythmic consistency (0.0-1.0).
+    #[serde(default)]
+    pub typing_cadence_stability: Option<f64>,
+
+    /// Number of pauses exceeding threshold.
+    #[serde(default)]
+    pub typing_gap_count: Option<u32>,
+
+    /// Proportion of intervals that are gaps.
+    #[serde(default)]
+    pub typing_gap_ratio: Option<f64>,
+
+    /// Dispersion of inter-tap intervals.
+    #[serde(default)]
+    pub typing_burstiness: Option<f64>,
+
+    /// Fraction of the window with active typing.
+    #[serde(default)]
+    pub typing_activity_ratio: Option<f64>,
+
+    /// Composite engagement measure for typing.
+    #[serde(default)]
+    pub typing_interaction_intensity: Option<f64>,
+
+    /// Whether this is a deep typing session.
+    #[serde(default)]
+    pub deep_typing: Option<bool>,
 }
 
 /// App switch event data
@@ -215,6 +286,11 @@ pub struct CanonicalBehaviorSignals {
     // Typing metrics
     /// Total typing duration in seconds
     pub total_typing_duration_sec: f64,
+    /// Per-typing-session metrics if provided by the producer.
+    ///
+    /// Each typing event can represent one typing session (keyboard open → close).
+    #[serde(default)]
+    pub typing_sessions: Vec<TypingSessionMetrics>,
 
     // Idle and engagement analysis
     /// Detected idle segments (gaps > 30s)
@@ -230,6 +306,27 @@ pub struct CanonicalBehaviorSignals {
 
     /// When the canonical signals were computed
     pub computed_at: DateTime<Utc>,
+}
+
+/// Typing metrics for a single typing session (keyboard open to close).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TypingSessionMetrics {
+    pub start_at: String,
+    pub end_at: String,
+    /// Duration in seconds.
+    pub duration: u32,
+    pub deep_typing: bool,
+    pub typing_tap_count: u32,
+    /// Tap events per second (SDK).
+    pub typing_speed: f64,
+    pub mean_inter_tap_interval_ms: f64,
+    pub typing_cadence_variability: f64,
+    pub typing_cadence_stability: f64,
+    pub typing_gap_count: u32,
+    pub typing_gap_ratio: f64,
+    pub typing_burstiness: f64,
+    pub typing_activity_ratio: f64,
+    pub typing_interaction_intensity: f64,
 }
 
 /// Quality flags for behavioral data
@@ -284,6 +381,10 @@ pub struct DerivedBehaviorSignals {
     // Core metrics
     /// Task switch rate (0-1, exponential saturation)
     pub task_switch_rate: f64,
+    /// Task switch cost normalized to 0-1 (raw ms / 10_000).
+    pub task_switch_cost: f64,
+    /// Active time ratio (0-1).
+    pub active_time_ratio: f64,
     /// Notification load (0-1, exponential saturation)
     pub notification_load: f64,
     /// Idle ratio (total idle time / session duration)

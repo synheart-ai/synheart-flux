@@ -54,10 +54,16 @@ pub fn session_to_canonical(
     // Count scroll direction reversals
     let scroll_direction_reversals = count_scroll_reversals(&events);
 
-    // Calculate total typing duration
-    let total_typing_duration_sec = calculate_typing_duration(&events);
+    // Extract per-typing-session metrics (if provided by producer)
+    let typing_sessions = extract_typing_sessions(&events);
 
-    // Compute inter-event gaps
+    // Calculate total typing duration
+    let total_typing_duration_sec = typing_sessions
+        .iter()
+        .map(|s| s.duration as f64)
+        .sum::<f64>();
+
+    // Compute inter-event gaps (typing-aware capping for burstiness parity)
     let inter_event_gaps = compute_inter_event_gaps(&events);
 
     // Detect idle segments
@@ -85,6 +91,7 @@ pub fn session_to_canonical(
         app_switch_events,
         scroll_direction_reversals,
         total_typing_duration_sec,
+        typing_sessions,
         idle_segments,
         total_idle_time_sec,
         engagement_segments,
@@ -128,14 +135,35 @@ fn count_scroll_reversals(events: &[BehaviorEvent]) -> u32 {
         .count() as u32
 }
 
-/// Calculate total typing duration from typing events
-fn calculate_typing_duration(events: &[BehaviorEvent]) -> f64 {
+fn extract_typing_sessions(
+    events: &[BehaviorEvent],
+) -> Vec<crate::behavior::types::TypingSessionMetrics> {
     events
         .iter()
         .filter(|e| e.event_type == BehaviorEventType::Typing)
         .filter_map(|e| e.typing.as_ref())
-        .filter_map(|t| t.duration_sec)
-        .sum()
+        .map(|t| crate::behavior::types::TypingSessionMetrics {
+            start_at: t.start_at.clone().unwrap_or_default(),
+            end_at: t.end_at.clone().unwrap_or_default(),
+            duration: t.duration_sec.unwrap_or(0.0).round().max(0.0) as u32,
+            deep_typing: t.deep_typing.unwrap_or(false),
+            typing_tap_count: t.typing_tap_count.unwrap_or(0),
+            // The SDK provides `typing_speed` as taps/sec; FluxBridge may map it into
+            // `typing_speed_cpm`. We expose it as-is in the session object.
+            typing_speed: t.typing_speed_cpm.unwrap_or(0.0),
+            mean_inter_tap_interval_ms: t.mean_inter_tap_interval_ms.unwrap_or(0.0),
+            typing_cadence_variability: t.typing_cadence_variability.unwrap_or(0.0),
+            typing_cadence_stability: t
+                .typing_cadence_stability
+                .or(t.cadence_stability)
+                .unwrap_or(0.0),
+            typing_gap_count: t.typing_gap_count.unwrap_or(0),
+            typing_gap_ratio: t.typing_gap_ratio.unwrap_or(0.0),
+            typing_burstiness: t.typing_burstiness.unwrap_or(0.0),
+            typing_activity_ratio: t.typing_activity_ratio.unwrap_or(0.0),
+            typing_interaction_intensity: t.typing_interaction_intensity.unwrap_or(0.0),
+        })
+        .collect()
 }
 
 /// Compute inter-event gaps (time between consecutive events)
@@ -144,14 +172,35 @@ fn compute_inter_event_gaps(events: &[BehaviorEvent]) -> Vec<f64> {
         return Vec::new();
     }
 
-    events
+    // Step 1: collect gaps with typing flag
+    let mut gaps: Vec<(f64, bool)> = events
         .windows(2)
         .map(|pair| {
             let gap_ms = (pair[1].timestamp - pair[0].timestamp).num_milliseconds();
-            gap_ms as f64 / 1000.0
+            let gap_sec = (gap_ms as f64 / 1000.0).max(0.0);
+            let involves_typing = pair[0].event_type == BehaviorEventType::Typing
+                || pair[1].event_type == BehaviorEventType::Typing;
+            (gap_sec, involves_typing)
         })
-        .filter(|&gap| gap >= 0.0) // Filter out negative gaps (shouldn't happen with sorted events)
-        .collect()
+        .collect();
+
+    // Step 2: find max non-typing gap
+    let max_non_typing_gap = gaps
+        .iter()
+        .filter(|(_, involves)| !*involves)
+        .map(|(gap, _)| *gap)
+        .fold(0.0_f64, f64::max);
+
+    // Step 3: cap typing gaps at max non-typing gap (if present)
+    if max_non_typing_gap > 0.0 {
+        for (gap, involves_typing) in &mut gaps {
+            if *involves_typing {
+                *gap = gap.min(max_non_typing_gap);
+            }
+        }
+    }
+
+    gaps.into_iter().map(|(gap, _)| gap).collect()
 }
 
 /// Detect idle segments (gaps > 30 seconds)
@@ -166,10 +215,13 @@ fn detect_idle_segments(
         // Entire session is idle
         let duration_sec = (*session_end - *session_start).num_milliseconds() as f64 / 1000.0;
         if duration_sec > IDLE_GAP_THRESHOLD_SEC {
+            // SDK subtracts the 30s threshold from idle time.
+            let idle_duration_sec = (duration_sec - IDLE_GAP_THRESHOLD_SEC).max(0.0);
             segments.push(IdleSegment {
-                start: *session_start,
+                start: *session_start
+                    + chrono::Duration::milliseconds((IDLE_GAP_THRESHOLD_SEC * 1000.0) as i64),
                 end: *session_end,
-                duration_sec,
+                duration_sec: idle_duration_sec,
             });
         }
         return segments;
@@ -178,10 +230,12 @@ fn detect_idle_segments(
     // Check gap from session start to first event
     let first_gap_sec = (events[0].timestamp - *session_start).num_milliseconds() as f64 / 1000.0;
     if first_gap_sec > IDLE_GAP_THRESHOLD_SEC {
+        let idle_duration_sec = (first_gap_sec - IDLE_GAP_THRESHOLD_SEC).max(0.0);
         segments.push(IdleSegment {
-            start: *session_start,
+            start: *session_start
+                + chrono::Duration::milliseconds((IDLE_GAP_THRESHOLD_SEC * 1000.0) as i64),
             end: events[0].timestamp,
-            duration_sec: first_gap_sec,
+            duration_sec: idle_duration_sec,
         });
     }
 
@@ -189,10 +243,12 @@ fn detect_idle_segments(
     for pair in events.windows(2) {
         let gap_sec = (pair[1].timestamp - pair[0].timestamp).num_milliseconds() as f64 / 1000.0;
         if gap_sec > IDLE_GAP_THRESHOLD_SEC {
+            let idle_duration_sec = (gap_sec - IDLE_GAP_THRESHOLD_SEC).max(0.0);
             segments.push(IdleSegment {
-                start: pair[0].timestamp,
+                start: pair[0].timestamp
+                    + chrono::Duration::milliseconds((IDLE_GAP_THRESHOLD_SEC * 1000.0) as i64),
                 end: pair[1].timestamp,
-                duration_sec: gap_sec,
+                duration_sec: idle_duration_sec,
             });
         }
     }
@@ -201,10 +257,12 @@ fn detect_idle_segments(
     let last_gap_sec =
         (*session_end - events.last().unwrap().timestamp).num_milliseconds() as f64 / 1000.0;
     if last_gap_sec > IDLE_GAP_THRESHOLD_SEC {
+        let idle_duration_sec = (last_gap_sec - IDLE_GAP_THRESHOLD_SEC).max(0.0);
         segments.push(IdleSegment {
-            start: events.last().unwrap().timestamp,
+            start: events.last().unwrap().timestamp
+                + chrono::Duration::milliseconds((IDLE_GAP_THRESHOLD_SEC * 1000.0) as i64),
             end: *session_end,
-            duration_sec: last_gap_sec,
+            duration_sec: idle_duration_sec,
         });
     }
 
@@ -222,33 +280,58 @@ fn detect_engagement_segments(
     }
 
     let mut segments = Vec::new();
-    let mut segment_start = events[0].timestamp;
+    let interruption_types = [
+        BehaviorEventType::Notification,
+        BehaviorEventType::Call,
+        BehaviorEventType::AppSwitch,
+    ];
+
+    // Find first non-interruption event to seed a segment.
+    let mut first_idx = None;
+    for (i, e) in events.iter().enumerate() {
+        if !interruption_types.contains(&e.event_type) {
+            first_idx = Some(i);
+            break;
+        }
+    }
+    let Some(first_idx) = first_idx else {
+        return Vec::new();
+    };
+
+    let mut segment_start = events[first_idx].timestamp;
     let mut segment_event_count: u32 = 1;
 
     // Check if initial gap is too large
-    let initial_gap_sec = (events[0].timestamp - *session_start).num_milliseconds() as f64 / 1000.0;
+    let initial_gap_sec =
+        (events[first_idx].timestamp - *session_start).num_milliseconds() as f64 / 1000.0;
     if initial_gap_sec <= IDLE_GAP_THRESHOLD_SEC {
         segment_start = *session_start;
     }
 
-    for pair in events.windows(2) {
+    for pair in events.windows(2).skip(first_idx) {
+        let current = &pair[1];
         let gap_sec = (pair[1].timestamp - pair[0].timestamp).num_milliseconds() as f64 / 1000.0;
+        let is_interruption = interruption_types.contains(&current.event_type);
 
-        if gap_sec > IDLE_GAP_THRESHOLD_SEC {
-            // End current segment
-            let duration_sec =
-                (pair[0].timestamp - segment_start).num_milliseconds() as f64 / 1000.0;
+        if is_interruption || gap_sec > IDLE_GAP_THRESHOLD_SEC {
+            // End current segment at the interruption time, or at last event before idle gap
+            let segment_end = if is_interruption {
+                current.timestamp
+            } else {
+                pair[0].timestamp
+            };
+            let duration_sec = (segment_end - segment_start).num_milliseconds() as f64 / 1000.0;
             if duration_sec >= MIN_ENGAGEMENT_DURATION_SEC && segment_event_count > 0 {
                 segments.push(EngagementSegment {
                     start: segment_start,
-                    end: pair[0].timestamp,
+                    end: segment_end,
                     duration_sec,
                     event_count: segment_event_count,
                 });
             }
             // Start new segment
-            segment_start = pair[1].timestamp;
-            segment_event_count = 1;
+            segment_start = current.timestamp;
+            segment_event_count = if is_interruption { 0 } else { 1 };
         } else {
             segment_event_count += 1;
         }
@@ -434,10 +517,11 @@ mod tests {
         // 3. From 14:02:00 to 14:03:30 - 90s > 30s
         // 4. From 14:03:30 to end (14:05:00) - 90s > 30s
         assert_eq!(canonical.idle_segments.len(), 4);
-        assert!((canonical.idle_segments[0].duration_sec - 60.0).abs() < 0.001);
-        assert!((canonical.idle_segments[1].duration_sec - 60.0).abs() < 0.001);
-        assert!((canonical.idle_segments[2].duration_sec - 90.0).abs() < 0.001);
-        assert!((canonical.idle_segments[3].duration_sec - 90.0).abs() < 0.001);
+        // SDK subtracts the 30s threshold from idle time.
+        assert!((canonical.idle_segments[0].duration_sec - 30.0).abs() < 0.001);
+        assert!((canonical.idle_segments[1].duration_sec - 30.0).abs() < 0.001);
+        assert!((canonical.idle_segments[2].duration_sec - 60.0).abs() < 0.001);
+        assert!((canonical.idle_segments[3].duration_sec - 60.0).abs() < 0.001);
     }
 
     #[test]

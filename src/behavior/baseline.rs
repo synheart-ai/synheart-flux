@@ -173,6 +173,7 @@ mod tests {
             app_switch_events: 5,
             scroll_direction_reversals: 10,
             total_typing_duration_sec: 60.0,
+            typing_sessions: vec![],
             idle_segments: vec![],
             total_idle_time_sec: 60.0,
             engagement_segments: vec![],
@@ -195,6 +196,8 @@ mod tests {
         DerivedBehaviorSignals {
             normalized,
             task_switch_rate: 0.3,
+            task_switch_cost: 0.0,
+            active_time_ratio: 0.0,
             notification_load: 0.15,
             idle_ratio: 0.033,
             fragmented_idle_ratio: 0.0,
