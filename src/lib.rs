@@ -12,6 +12,7 @@
 pub mod adapters;
 pub mod baseline;
 pub mod behavior;
+pub mod context;
 pub mod encoder;
 pub mod error;
 pub mod features;
@@ -23,6 +24,7 @@ pub mod types;
 // FFI bindings for C interop (always available for cdylib/staticlib builds)
 pub mod ffi;
 
+pub use context::{BioDailyContext, DecayedBioContext};
 pub use error::ComputeError;
 pub use pipeline::{garmin_to_hsi_daily, whoop_to_hsi_daily, FluxProcessor};
 

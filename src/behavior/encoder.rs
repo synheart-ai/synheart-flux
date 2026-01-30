@@ -227,6 +227,7 @@ impl HsiBehaviorEncoder {
             behavior: Some(HsiAxesDomain {
                 readings: behavior_readings,
             }),
+            context: None,
         };
 
         // Build privacy
