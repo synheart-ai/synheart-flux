@@ -537,6 +537,9 @@ pub struct HsiAxes {
     /// Behavior domain readings
     #[serde(skip_serializing_if = "Option::is_none")]
     pub behavior: Option<HsiAxesDomain>,
+    /// Context domain readings (staleness-aware bio context)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<HsiAxesDomain>,
 }
 
 /// HSI 1.0 source definition

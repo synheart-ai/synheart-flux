@@ -12,6 +12,8 @@ Flux centralizes two parallel pipelines:
 - **Wearable Pipeline**: vendor adaptation → normalization → feature derivation → baseline computation → HSI encoding
 - **Behavioral Pipeline**: session parsing → normalization → metric computation → baseline tracking → HSI encoding
 
+Additionally, Flux provides a **Snapshot API** that combines staleness-aware bio context from wearables with realtime behavioral signals for adaptive systems.
+
 ## What this crate does
 
 ### Wearable Processing
@@ -27,6 +29,12 @@ Flux centralizes two parallel pipelines:
 - **Detect patterns** (idle segments, engagement blocks, scroll jitter, deep focus periods)
 - **Maintain rolling baselines** across sessions (20-session default window)
 - **Encode** behavioral windows into HSI JSON with deviation tracking
+
+### Context Snapshots
+- **Capture bio context** from wearable processing (sleep quality, recovery, HRV/RHR deviations)
+- **Apply staleness decay** with configurable half-life (default 12 hours)
+- **Combine with realtime behavior** for context-aware adaptive systems
+- **Read-only snapshots** that don't mutate baselines
 
 ## Non-goals
 
@@ -222,6 +230,70 @@ fn main() -> Result<(), synheart_flux::ComputeError> {
 }
 ```
 
+### Context-aware snapshots
+
+The `snapshot_now()` API provides staleness-aware bio context combined with optional realtime behavior. This is useful for adaptive systems that need honest background context from wearables while relying on behavior for realtime state.
+
+```rust
+use synheart_flux::FluxProcessor;
+
+fn main() -> Result<(), synheart_flux::ComputeError> {
+    let mut processor = FluxProcessor::new();
+
+    // First, process wearable data to capture bio context
+    let whoop_json = r#"{"sleep": [...], "recovery": [...], "cycle": [...]}"#;
+    processor.process_whoop(whoop_json, "America/New_York", "device-123")?;
+
+    // Later, take a snapshot with current time
+    // Bio context confidence decays over time (50% at 12 hours, 25% at 24 hours)
+    let snapshot = processor.snapshot_now(
+        "2024-01-15T14:00:00Z",  // Current time (RFC3339)
+        "America/New_York",
+        "device-123",
+        None,  // Optional: behavior session JSON for realtime state
+    )?;
+
+    println!("Snapshot HSI: {}", snapshot);
+    Ok(())
+}
+```
+
+#### With realtime behavior
+
+```rust
+use synheart_flux::FluxProcessor;
+
+fn main() -> Result<(), synheart_flux::ComputeError> {
+    let mut processor = FluxProcessor::new();
+
+    // Process wearable data (e.g., from morning sync)
+    processor.process_whoop(whoop_json, "America/New_York", "device-123")?;
+
+    // During the day, take snapshots with current behavior
+    let behavior_json = r#"{
+        "session_id": "sess-456",
+        "device_id": "device-123",
+        "timezone": "America/New_York",
+        "start_time": "2024-01-15T14:00:00Z",
+        "end_time": "2024-01-15T14:30:00Z",
+        "events": [...]
+    }"#;
+
+    let snapshot = processor.snapshot_now(
+        "2024-01-15T14:35:00Z",
+        "America/New_York",
+        "device-123",
+        Some(behavior_json),  // Include realtime behavior
+    )?;
+
+    // Snapshot contains both:
+    // - axes.context: bio_freshness, recovery_context, sleep_context (decayed confidence)
+    // - axes.behavior: distraction, focus, task_switch_rate, etc. (realtime)
+    println!("Combined snapshot: {}", snapshot);
+    Ok(())
+}
+```
+
 ## Output
 
 Flux emits **HSI 1.0 JSON** payloads that conform to the Human State Interface specification:
@@ -291,6 +363,56 @@ Flux emits **HSI 1.0 JSON** payloads that conform to the Human State Interface s
 }
 ```
 
+### Snapshot Output Example (Context + Behavior)
+
+```json
+{
+  "hsi_version": "1.0",
+  "observed_at_utc": "2024-01-15T14:35:00+00:00",
+  "computed_at_utc": "2024-01-15T14:35:01+00:00",
+  "producer": {
+    "name": "synheart-flux",
+    "version": "0.1.0",
+    "instance_id": "..."
+  },
+  "window_ids": ["w_snapshot_..."],
+  "windows": {
+    "w_snapshot_...": {
+      "start": "2024-01-15T14:35:00+00:00",
+      "end": "2024-01-15T14:35:00+00:00",
+      "label": "snapshot"
+    }
+  },
+  "axes": {
+    "context": {
+      "readings": [
+        { "axis": "bio_freshness", "score": 0.71, "confidence": 0.9, "window_id": "w_snapshot_...", "direction": "higher_is_more", "unit": "freshness", "notes": "Age: 28800 seconds, half-life: 12 hours" },
+        { "axis": "recovery_context", "score": 0.75, "confidence": 0.64, "window_id": "w_snapshot_...", "direction": "higher_is_more", "unit": "score" },
+        { "axis": "sleep_context", "score": 0.85, "confidence": 0.64, "window_id": "w_snapshot_...", "direction": "higher_is_more", "unit": "score" }
+      ]
+    },
+    "behavior": {
+      "readings": [
+        { "axis": "distraction", "score": 0.35, "confidence": 0.95, "window_id": "w_snapshot_...", "direction": "higher_is_more" },
+        { "axis": "focus", "score": 0.65, "confidence": 0.95, "window_id": "w_snapshot_...", "direction": "higher_is_more" }
+      ]
+    }
+  },
+  "privacy": {
+    "contains_pii": false,
+    "raw_biosignals_allowed": false,
+    "derived_metrics_allowed": true,
+    "purposes": ["context_snapshot"]
+  },
+  "meta": {
+    "snapshot_type": "context_aware",
+    "device_id": "device-123",
+    "timezone": "America/New_York",
+    "bio_context_age_hours": 8.0
+  }
+}
+```
+
 ### Behavioral Axes
 
 | Axis | Direction | Description |
@@ -304,11 +426,30 @@ Flux emits **HSI 1.0 JSON** payloads that conform to the Human State Interface s
 | `interaction_intensity` | higher_is_more | Events per second (normalized) |
 | `idle_ratio` | higher_is_more | Idle time ratio |
 
+### Context Axes (Snapshot API)
+
+| Axis | Direction | Description |
+|------|-----------|-------------|
+| `bio_freshness` | higher_is_more | How fresh the wearable data is (1.0 = just observed, decays over time) |
+| `recovery_context` | higher_is_more | Recovery score with staleness-decayed confidence |
+| `sleep_context` | higher_is_more | Sleep quality with staleness-decayed confidence |
+| `hrv_delta_context` | bidirectional | HRV deviation from baseline (0.5 = at baseline) |
+| `rhr_delta_context` | higher_is_more | RHR deviation from baseline (>0.5 = below baseline, better) |
+
+#### Staleness Decay
+
+Bio context confidence decays exponentially with a 12-hour half-life:
+- **0 hours**: 100% confidence
+- **12 hours**: 50% confidence
+- **24 hours**: 25% confidence
+- **~40 hours**: ~10% confidence (considered stale)
+
 ## Feature flags
 
 - **`ffi`**: Enables the C FFI bindings for mobile and cross-language integration. Provides:
   - Wearable functions: `flux_whoop_to_hsi_daily`, `flux_garmin_to_hsi_daily`, and stateful `FluxProcessor` API
   - Behavioral functions: `flux_behavior_to_hsi`, and stateful `BehaviorProcessor` API
+  - Snapshot functions: `flux_processor_snapshot_now` (stateful), `flux_snapshot_now` (stateless)
 
 ## Development
 

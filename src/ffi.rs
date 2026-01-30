@@ -390,6 +390,152 @@ pub unsafe extern "C" fn flux_processor_load_baselines(
     }
 }
 
+/// Take a snapshot of current bio context with optional behavior session (stateful).
+///
+/// This is a read-only operation that does NOT mutate baselines.
+/// Returns HSI 1.0 JSON with axes.context and optionally axes.behavior.
+///
+/// # Safety
+/// - `processor` must be a valid pointer returned by `flux_processor_new`.
+/// - `now_utc`, `timezone`, `device_id` must be valid null-terminated C strings.
+/// - `behavior_session_json` can be NULL (no behavior processing) or a valid C string.
+/// - Returns a newly allocated string that must be freed with `flux_free_string`.
+/// - Returns NULL on error; call `flux_last_error` to get the error message.
+#[no_mangle]
+pub unsafe extern "C" fn flux_processor_snapshot_now(
+    processor: *mut FluxProcessorHandle,
+    now_utc: *const c_char,
+    timezone: *const c_char,
+    device_id: *const c_char,
+    behavior_session_json: *const c_char,
+) -> *mut c_char {
+    clear_last_error();
+
+    if processor.is_null() {
+        set_last_error("Null processor pointer");
+        return ptr::null_mut();
+    }
+
+    let handle = &*processor;
+
+    let now_str = match cstr_to_string(now_utc) {
+        Some(s) => s,
+        None => {
+            set_last_error("Invalid now_utc string pointer");
+            return ptr::null_mut();
+        }
+    };
+
+    let tz_str = match cstr_to_string(timezone) {
+        Some(s) => s,
+        None => {
+            set_last_error("Invalid timezone string pointer");
+            return ptr::null_mut();
+        }
+    };
+
+    let device_str = match cstr_to_string(device_id) {
+        Some(s) => s,
+        None => {
+            set_last_error("Invalid device_id string pointer");
+            return ptr::null_mut();
+        }
+    };
+
+    // behavior_session_json is optional (can be NULL)
+    let behavior_opt = cstr_to_string(behavior_session_json);
+
+    match handle.processor.snapshot_now(
+        &now_str,
+        &tz_str,
+        &device_str,
+        behavior_opt.as_deref(),
+    ) {
+        Ok(json) => string_to_cstr(&json),
+        Err(e) => {
+            set_last_error(&e.to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
+// ============================================================================
+// Stateless Snapshot API
+// ============================================================================
+
+/// Take a snapshot with provided baselines (stateless).
+///
+/// This is a stateless helper that creates a temporary processor, loads baselines,
+/// and takes a snapshot. Use when you don't need a persistent processor.
+///
+/// # Safety
+/// - `now_utc`, `timezone`, `device_id` must be valid null-terminated C strings.
+/// - `baselines_json` can be NULL (fresh baseline store) or a valid C string.
+/// - `behavior_session_json` can be NULL (no behavior processing) or a valid C string.
+/// - Returns a newly allocated string that must be freed with `flux_free_string`.
+/// - Returns NULL on error; call `flux_last_error` to get the error message.
+#[no_mangle]
+pub unsafe extern "C" fn flux_snapshot_now(
+    now_utc: *const c_char,
+    timezone: *const c_char,
+    device_id: *const c_char,
+    baselines_json: *const c_char,
+    behavior_session_json: *const c_char,
+) -> *mut c_char {
+    clear_last_error();
+
+    let now_str = match cstr_to_string(now_utc) {
+        Some(s) => s,
+        None => {
+            set_last_error("Invalid now_utc string pointer");
+            return ptr::null_mut();
+        }
+    };
+
+    let tz_str = match cstr_to_string(timezone) {
+        Some(s) => s,
+        None => {
+            set_last_error("Invalid timezone string pointer");
+            return ptr::null_mut();
+        }
+    };
+
+    let device_str = match cstr_to_string(device_id) {
+        Some(s) => s,
+        None => {
+            set_last_error("Invalid device_id string pointer");
+            return ptr::null_mut();
+        }
+    };
+
+    // Create a processor
+    let mut processor = FluxProcessor::new();
+
+    // Load baselines if provided
+    if let Some(baselines) = cstr_to_string(baselines_json) {
+        if let Err(e) = processor.load_baselines(&baselines) {
+            set_last_error(&e.to_string());
+            return ptr::null_mut();
+        }
+    }
+
+    // behavior_session_json is optional
+    let behavior_opt = cstr_to_string(behavior_session_json);
+
+    match processor.snapshot_now(
+        &now_str,
+        &tz_str,
+        &device_str,
+        behavior_opt.as_deref(),
+    ) {
+        Ok(json) => string_to_cstr(&json),
+        Err(e) => {
+            set_last_error(&e.to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
 // ============================================================================
 // Behavioral Stateless API
 // ============================================================================
@@ -888,6 +1034,170 @@ mod tests {
 
             let error_str = CStr::from_ptr(error).to_str().unwrap();
             assert!(!error_str.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_ffi_processor_snapshot_now() {
+        unsafe {
+            // Create processor and process wearable data first
+            let processor = flux_processor_new(7);
+            let whoop_json = sample_whoop_json();
+            let tz = CString::new("America/New_York").unwrap();
+            let device = CString::new("test-device").unwrap();
+
+            // Process WHOOP data to capture bio context
+            let process_result = flux_processor_process_whoop(
+                processor,
+                whoop_json.as_ptr(),
+                tz.as_ptr(),
+                device.as_ptr(),
+            );
+            assert!(!process_result.is_null());
+            flux_free_string(process_result);
+
+            // Now take a snapshot
+            let now = CString::new("2024-01-15T14:00:00Z").unwrap();
+            let snapshot_device = CString::new("device-1").unwrap();
+
+            let result = flux_processor_snapshot_now(
+                processor,
+                now.as_ptr(),
+                tz.as_ptr(),
+                snapshot_device.as_ptr(),
+                ptr::null(), // No behavior session
+            );
+
+            assert!(!result.is_null());
+
+            let result_str = CStr::from_ptr(result).to_str().unwrap();
+            // Should have HSI 1.0 structure
+            assert!(result_str.contains("\"hsi_version\":"));
+            assert!(result_str.contains("\"axes\":"));
+            // Should have context axis
+            assert!(result_str.contains("\"context\":"));
+            assert!(result_str.contains("\"bio_freshness\""));
+
+            flux_free_string(result);
+            flux_processor_free(processor);
+        }
+    }
+
+    #[test]
+    fn test_ffi_processor_snapshot_now_with_behavior() {
+        unsafe {
+            let processor = flux_processor_new(7);
+            let whoop_json = sample_whoop_json();
+            let tz = CString::new("America/New_York").unwrap();
+            let device = CString::new("test-device").unwrap();
+
+            // Process WHOOP data
+            let process_result = flux_processor_process_whoop(
+                processor,
+                whoop_json.as_ptr(),
+                tz.as_ptr(),
+                device.as_ptr(),
+            );
+            assert!(!process_result.is_null());
+            flux_free_string(process_result);
+
+            // Take snapshot with behavior
+            let now = CString::new("2024-01-15T14:35:00Z").unwrap();
+            let snapshot_device = CString::new("device-1").unwrap();
+            let behavior_json = sample_behavior_session_json();
+
+            let result = flux_processor_snapshot_now(
+                processor,
+                now.as_ptr(),
+                tz.as_ptr(),
+                snapshot_device.as_ptr(),
+                behavior_json.as_ptr(),
+            );
+
+            assert!(!result.is_null());
+
+            let result_str = CStr::from_ptr(result).to_str().unwrap();
+            // Should have both context and behavior axes
+            assert!(result_str.contains("\"context\":"));
+            assert!(result_str.contains("\"behavior\":"));
+            assert!(result_str.contains("\"distraction\""));
+            assert!(result_str.contains("\"bio_freshness\""));
+
+            flux_free_string(result);
+            flux_processor_free(processor);
+        }
+    }
+
+    #[test]
+    fn test_ffi_stateless_snapshot_now() {
+        unsafe {
+            let now = CString::new("2024-01-15T14:00:00Z").unwrap();
+            let tz = CString::new("America/New_York").unwrap();
+            let device = CString::new("device-1").unwrap();
+
+            // Snapshot without baselines (fresh state)
+            let result = flux_snapshot_now(
+                now.as_ptr(),
+                tz.as_ptr(),
+                device.as_ptr(),
+                ptr::null(), // No baselines
+                ptr::null(), // No behavior
+            );
+
+            assert!(!result.is_null());
+
+            let result_str = CStr::from_ptr(result).to_str().unwrap();
+            // Should have HSI structure but no context (no bio data)
+            assert!(result_str.contains("\"hsi_version\":"));
+
+            flux_free_string(result);
+        }
+    }
+
+    #[test]
+    fn test_ffi_stateless_snapshot_with_baselines() {
+        unsafe {
+            // First, create baselines by processing data
+            let processor = flux_processor_new(7);
+            let whoop_json = sample_whoop_json();
+            let tz = CString::new("America/New_York").unwrap();
+            let device = CString::new("test-device").unwrap();
+
+            let process_result = flux_processor_process_whoop(
+                processor,
+                whoop_json.as_ptr(),
+                tz.as_ptr(),
+                device.as_ptr(),
+            );
+            assert!(!process_result.is_null());
+            flux_free_string(process_result);
+
+            // Save baselines
+            let baselines = flux_processor_save_baselines(processor);
+            assert!(!baselines.is_null());
+            flux_processor_free(processor);
+
+            // Now use stateless snapshot with those baselines
+            let now = CString::new("2024-01-15T14:00:00Z").unwrap();
+            let snapshot_device = CString::new("device-1").unwrap();
+
+            let result = flux_snapshot_now(
+                now.as_ptr(),
+                tz.as_ptr(),
+                snapshot_device.as_ptr(),
+                baselines,
+                ptr::null(), // No behavior
+            );
+
+            assert!(!result.is_null());
+
+            let result_str = CStr::from_ptr(result).to_str().unwrap();
+            // Should have context axis from loaded baselines
+            assert!(result_str.contains("\"context\":"));
+            assert!(result_str.contains("\"bio_freshness\""));
+
+            flux_free_string(result);
+            flux_free_string(baselines);
         }
     }
 }
